@@ -104,13 +104,11 @@ def _get_base_metadata_no_passive(env, run_path):
     }
 
 _exporter_utils.get_base_metadata = _get_base_metadata_no_passive
-# Also patch the already-imported reference in the velocity task exporter.
-try:
-    from mjlab.tasks.velocity.rl import exporter as _vel_exporter  # noqa: E402
-    if hasattr(_vel_exporter, "get_base_metadata"):
-        _vel_exporter.get_base_metadata = _get_base_metadata_no_passive
-except Exception:
-    pass
+# The velocity runner imports this function by value before tasks load. Keep
+# automatic checkpoint exports consistent with scripts/export.py as well.
+from mjlab.tasks.velocity.rl import runner as _velocity_runner  # noqa: E402
+
+_velocity_runner.get_base_metadata = _get_base_metadata_no_passive
 
 print("[mdp] Patch 4 active: ONNX export filters passive_* joints")
 
@@ -3776,10 +3774,10 @@ def randomize_imu_orientation(
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ):
     """Randomize IMU sensor mounting orientation by small angles.
-    
+
     Simulates slight mounting errors or calibration offsets in the real robot.
     The IMU orientation is randomized by rotating around random axes by up to max_angle_deg.
-    
+
     Args:
         env: The environment
         env_ids: Environment IDs to randomize
@@ -3790,49 +3788,49 @@ def randomize_imu_orientation(
         env_ids = torch.arange(env.num_envs, device=env.device, dtype=torch.int)
     else:
         env_ids = env_ids.to(env.device, dtype=torch.int)
-    
+
     asset: Entity = env.scene[asset_cfg.name]
 
     # IMU site is the first site (index 0) in robot.xml
     # Sites: imu (0), left_foot (1), right_foot (2)
     site_id = 0
-    
+
     # Store original orientation on first call
     if not hasattr(env, '_original_imu_quat'):
         env._original_imu_quat = env.sim.model.site_quat[0, site_id].clone()
-    
+
     # Generate random rotations for each environment
     num_envs = len(env_ids)
     max_angle_rad = max_angle_deg * torch.pi / 180.0
-    
+
     # Random rotation angles [-max_angle, +max_angle] for each axis
     angles = (torch.rand(num_envs, 3, device=env.device) * 2 - 1) * max_angle_rad
-    
+
     # Convert Euler angles to quaternions (small angle approximation for efficiency)
     # For small angles: quat ≈ [1, θx/2, θy/2, θz/2]
     half_angles = angles / 2.0
     quats_delta = torch.zeros(num_envs, 4, device=env.device)
     quats_delta[:, 0] = 1.0  # w component
     quats_delta[:, 1:] = half_angles  # x, y, z components
-    
+
     # Normalize the quaternion
     quats_delta = quats_delta / torch.norm(quats_delta, dim=1, keepdim=True)
-    
+
     # Get original quaternion and apply delta rotation
     original_quat = env._original_imu_quat.unsqueeze(0).expand(num_envs, -1)
-    
+
     # Quaternion multiplication: q_new = q_delta * q_original
     # q1 * q2 = [w1*w2 - dot(v1,v2), w1*v2 + w2*v1 + cross(v1,v2)]
     w1, x1, y1, z1 = quats_delta[:, 0], quats_delta[:, 1], quats_delta[:, 2], quats_delta[:, 3]
     w2, x2, y2, z2 = original_quat[:, 0], original_quat[:, 1], original_quat[:, 2], original_quat[:, 3]
-    
+
     new_quat = torch.stack([
         w1*w2 - x1*x2 - y1*y2 - z1*z2,  # w
         w1*x2 + x1*w2 + y1*z2 - z1*y2,  # x
         w1*y2 - x1*z2 + y1*w2 + z1*x2,  # y
         w1*z2 + x1*y2 - y1*x2 + z1*w2,  # z
     ], dim=1)
-    
+
     # Apply to the selected environments
     env.sim.model.site_quat[env_ids, site_id] = new_quat
 
@@ -4666,24 +4664,44 @@ class VelocityCommandCommandOnly(UniformVelocityCommand):
         # spinning on the spot was effectively untrained → slow/unstable real-robot
         # turning. Mirrors the base rel_forward_envs mechanism.
         p = getattr(self.cfg, "rel_turn_in_place_envs", 0.0)
-        if p <= 0.0:
+        if p > 0.0:
+            r = torch.empty(len(env_ids), device=self.device)
+            turn_ids = env_ids[r.uniform_(0.0, 1.0) < p]
+            self.vel_command_b[turn_ids, 0] = 0.0
+            self.vel_command_b[turn_ids, 1] = 0.0
+            lo, hi = self.cfg.ranges.ang_vel_z
+            maxr = max(abs(lo), abs(hi))
+            rr = torch.empty(len(turn_ids), device=self.device)
+            sign = torch.where(rr.uniform_(0.0, 1.0) < 0.5, -1.0, 1.0)
+            mag = torch.empty(len(turn_ids), device=self.device).uniform_(0.4 * maxr, maxr)
+            self.vel_command_b[turn_ids, 2] = sign * mag
+            self.is_standing_env[turn_ids] = False
+            self.vel_command_w[turn_ids] = self.vel_command_b[turn_ids]
+
+        # Optional straight-backward practice. Apply after the forward/turn
+        # buckets so subsequent command updates cannot turn it into a mixed
+        # heading/world command. Preserve environments assigned to stand still.
+        p_back = getattr(self.cfg, "rel_backward_envs", 0.0)
+        if p_back <= 0.0:
             return
-        r = torch.empty(len(env_ids), device=self.device)
-        turn_ids = env_ids[r.uniform_(0.0, 1.0) < p]
-        if len(turn_ids) == 0:
+        eligible = env_ids[~self.is_standing_env[env_ids]]
+        backward_ids = eligible[
+            torch.rand(len(eligible), device=self.device) < p_back
+        ]
+        if len(backward_ids) == 0:
             return
-        self.vel_command_b[turn_ids, 0] = 0.0
-        self.vel_command_b[turn_ids, 1] = 0.0
-        lo, hi = self.cfg.ranges.ang_vel_z
-        maxr = max(abs(lo), abs(hi))
-        rr = torch.empty(len(turn_ids), device=self.device)
-        sign = torch.where(rr.uniform_(0.0, 1.0) < 0.5, -1.0, 1.0)
-        mag = torch.empty(len(turn_ids), device=self.device).uniform_(0.4 * maxr, maxr)
-        self.vel_command_b[turn_ids, 2] = sign * mag
-        # These envs must actually turn — un-mark them as standing (which would
-        # zero the command) and refresh the world-frame reference copy.
-        self.is_standing_env[turn_ids] = False
-        self.vel_command_w[turn_ids] = self.vel_command_b[turn_ids]
+        lo = max(self.cfg.backward_speed_range[0], self.cfg.ranges.lin_vel_x[0])
+        hi = min(self.cfg.backward_speed_range[1], self.cfg.ranges.lin_vel_x[1])
+        if not lo < hi < 0.0:
+            raise ValueError("Backward practice requires a nonempty negative speed range")
+        self.vel_command_b[backward_ids, 0] = torch.empty(
+            len(backward_ids), device=self.device
+        ).uniform_(lo, hi)
+        self.vel_command_b[backward_ids, 1:] = 0.0
+        self.is_heading_env[backward_ids] = False
+        self.is_world_env[backward_ids] = False
+        self.is_forward_env[backward_ids] = False
+        self.vel_command_w[backward_ids] = self.vel_command_b[backward_ids]
 
     def _debug_vis_impl(self, visualizer: "DebugVisualizer") -> None:
         batch = visualizer.env_idx
@@ -4721,6 +4739,10 @@ class VelocityCommandCommandOnlyCfg(UniformVelocityCommandCfg):
     # Fraction of envs commanded to turn in place (lin=0, |ang| forced to
     # [0.4·max, max]) each resample. 0 = disabled (base uniform sampling only).
     rel_turn_in_place_envs: float = 0.0
+    # Fraction of non-standing resamples assigned straight backward motion.
+    # Disabled by default so the original MicroDuck recipes stay unchanged.
+    rel_backward_envs: float = 0.0
+    backward_speed_range: tuple[float, float] = (-0.15, -0.05)
 
     def build(self, env: ManagerBasedRlEnv) -> "VelocityCommandCommandOnly":
         return VelocityCommandCommandOnly(self, env)
@@ -5377,6 +5399,41 @@ def foot_height_safe(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
 def foot_air_time_safe(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
     """NaN-safe `foot_air_time` (see note above)."""
     return _finite(_velocity_obs.foot_air_time(env, sensor_name))
+
+
+def neck_pose_bias_penalty(
+    env: ManagerBasedRlEnv,
+    command_name: str = "head_pose",
+    tau_s: float = 1.0,
+    deadband_rad: float = math.radians(3.0),
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+    """Negative sustained neck-pitch error outside a symmetric deadband.
+
+    Commands are deltas from HOME, just like head_pose_tracking. Average the
+    signed error before taking its magnitude so stride oscillation can cancel.
+    This has its own state: evaluating it must not advance head_pose_bias's EMA.
+    """
+    asset: Entity = env.scene[asset_cfg.name]
+    if not hasattr(env, "_head_pose_neck_ids"):
+        head_pose_tracking(env, command_name=command_name, asset_cfg=asset_cfg)
+    # The shared head-joint cache is ordered neck_pitch, head_pitch, yaw, roll.
+    neck_id = env._head_pose_neck_ids[0]
+    measured = asset.data.joint_pos[:, neck_id] + (
+        asset.data.joint_pos[:, env._head_pose_bl_ids[0]]
+        * env._head_pose_bl_mask[0]
+    )
+    cmd = env.command_manager.get_command(command_name)[:, 0]
+    err = measured - asset.data.default_joint_pos[:, neck_id] - cmd
+    if not hasattr(env, "_neck_pose_bias_ema"):
+        env._neck_pose_bias_ema = torch.zeros_like(err)
+    fresh = env.episode_length_buf <= 1
+    env._neck_pose_bias_ema[fresh] = 0.0
+    alpha = min(1.0, float(env.step_dt) / max(tau_s, 1e-6))
+    env._neck_pose_bias_ema = (
+        (1.0 - alpha) * env._neck_pose_bias_ema + alpha * err
+    )
+    return -(env._neck_pose_bias_ema.abs() - deadband_rad).clamp(min=0.0)
 
 
 def head_pose_bias_penalty(

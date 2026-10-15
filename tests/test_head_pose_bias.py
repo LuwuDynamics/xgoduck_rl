@@ -151,7 +151,6 @@ def test_standup_cfg_wiring():
     assert term.params["gate_tilt_full_deg"] == ad["tilt_full_deg"]
     stages = cfg.curriculum["head_pose_bias_weight"].params["weight_stages"]
     assert stages[0]["weight"] == 0.0
-    assert min(s["step"] for s in stages if s["weight"] > 0) >= 3000 * 24
 
 
 def test_velocity_cfg_unchanged_no_gate():

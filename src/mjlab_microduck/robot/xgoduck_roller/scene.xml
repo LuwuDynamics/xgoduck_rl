@@ -1,0 +1,7 @@
+<mujoco model="xgoduck_roller_scene">
+  <include file="robot.xml" />
+  <worldbody>
+    <light pos="0 0 2" dir="0 0 -1" />
+    <geom name="floor" type="plane" size="2 2 0.1" rgba="0.8 0.8 0.8 1" />
+  </worldbody>
+</mujoco>

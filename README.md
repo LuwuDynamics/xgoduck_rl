@@ -12,7 +12,7 @@ Thank you to the authors of those projects.
 
 The task code follows the MicroDuck recipes, but the robot does not:
 
-- The MJCF, meshes, masses, and inertias are the XgoDuck model (`src/mjlab_microduck/robot/xgoduck/`), scaled to 0.8 kg. Trunk height and sit height are recomputed for that geometry.
+- The MJCF, meshes, masses, and inertias are the XgoDuck model (`src/mjlab_microduck/robot/xgoduck/`), with SolidWorks-aligned mass properties (about 0.797789 kg). The default stand uses 22-degree hip/ankle angles. XgoDuck tasks retain positional CoM randomization while keeping mass and inertia fixed.
 - Actuators are the HLS1910 BAM model in `src/mjlab_microduck/robot/xgoduck/params/1910_m6.json`, not the MicroDuck XL330.
 
 ## Install
@@ -20,7 +20,7 @@ The task code follows the MicroDuck recipes, but the robot does not:
 You need a CUDA GPU, Python 3.12, and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-cd microduck_rl
+cd xgoduck_rl
 uv sync
 ```
 
@@ -49,6 +49,29 @@ uv run train Mjlab-Velocity-Flat-XgoDuck --env.scene.num-envs 4096
 | `Mjlab-BallKick-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_ball_kick_right/` |
 | `Mjlab-BallKick-Left-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_ball_kick_left/` |
 | `Mjlab-Roulade-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_roulade/` |
+| `Mjlab-Velocity-Swizzle-XgoDuck` | flat | `logs/rsl_rl/xgoduck_velocity_swizzle/` |
+
+### Roller skating and Swizzle
+
+The XgoDuck roller model has four passive wheels with a 15 mm radius and
+SolidWorks mass properties (about 0.874 kg). Its MJCF and meshes are in
+`src/mjlab_microduck/robot/xgoduck_roller/`. It shares the walk model's HLS1910
+actuators and default head posture.
+
+`Mjlab-Velocity-Swizzle-XgoDuck` adapts the MicroDuck Swizzle recipe: both skates
+stay grounded while the legs open and close symmetrically. Positive longitudinal
+commands push forward; negative commands push backward. The third twist component
+is a heading error in radians. All four head-command deltas stay zero, with
+position and sustained-bias penalties encouraging the default posture.
+
+Bearing drag and heading control follow the progressive MicroDuck curricula.
+Training randomizes tire sliding friction over 0.2–1.0. Mass and inertia remain
+fixed while positional CoM randomization is retained.
+
+```bash
+uv run train Mjlab-Velocity-Swizzle-XgoDuck --env.scene.num-envs 4096
+uv run play Mjlab-Velocity-Swizzle-XgoDuck
+```
 
 ## Play
 

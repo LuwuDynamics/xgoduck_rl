@@ -328,6 +328,11 @@ XgoduckRlCfg = replace(
 )
 
 
+from mjlab.managers import CurriculumTermCfg, RewardTermCfg
+
+from .xgoduck_physics import configure_xgoduck_physics
+
+
 def _xgoduck_velocity_cfg(**kwargs):
     cfg = make_microduck_velocity_env_cfg(**kwargs)
     cfg.scene.entities = {"robot": XGODUCK_WALK_ROBOT_CFG}
@@ -348,6 +353,53 @@ def _xgoduck_velocity_cfg(**kwargs):
     actor["projected_gravity"].noise.n_max = 0.03
     actor["joint_pos"].noise.n_min = -0.01
     actor["joint_pos"].noise.n_max = 0.01
+    # Keep the forward command cap explicit in the XgoDuck walk recipe.
+    cfg.commands["twist"].ranges.lin_vel_x = (-0.4, 0.4)
+    cfg.rewards["track_linear_velocity"].weight = 2.2
+    cfg.rewards["track_linear_velocity"].params["std"] = 0.30
+
+    # Shorter swings and lower foot lift for a more conservative walking gait.
+    cfg.rewards["air_time"].params["threshold_min"] = 0.100
+    cfg.rewards["air_time"].params["threshold_max"] = 0.250
+    cfg.rewards["foot_clearance"].params["target_height"] = 0.015
+    cfg.rewards["foot_swing_height"].params["target_height"] = 0.015
+    cfg.commands["twist"].rel_backward_envs = 0.15
+    cfg.commands["twist"].backward_speed_range = (-0.2, -0.1)
+
+    # Hold all four head command deltas at zero until iteration 1500, then
+    # restore the existing normal ranges in stages, reaching 100% at 3000.
+    head_curriculum = cfg.curriculum["head_pose_range"].params
+    normal_head_ranges = head_curriculum["range_stages"][-1]["ranges"]
+    head_curriculum["range_stages"] = [
+        {
+            "step": iteration * XgoduckRlCfg.num_steps_per_env,
+            "ranges": tuple((lo * scale, hi * scale) for lo, hi in normal_head_ranges),
+        }
+        for iteration, scale in (
+            (0, 0.0), (1500, 0.05), (2000, 0.35), (2500, 0.65), (3000, 1.0)
+        )
+    ]
+    cfg.commands["head_pose"].ranges = head_curriculum["range_stages"][0]["ranges"]
+
+    # Price sustained neck compensation, not normal stride-frequency motion.
+    # Positive weight: the function returns a negative excess bias in radians.
+    cfg.rewards["neck_pose_bias"] = RewardTermCfg(
+        func=microduck_mdp.neck_pose_bias_penalty,
+        weight=0.0,
+        params={"command_name": "head_pose", "tau_s": 1.0,
+                "deadband_rad": math.radians(3.0)},
+    )
+    cfg.curriculum["neck_pose_bias_weight"] = CurriculumTermCfg(
+        func=microduck_mdp.reward_weight,
+        params={
+            "reward_name": "neck_pose_bias",
+            "weight_stages": [
+                {"step": 0, "weight": 0.0},
+                {"step": 600 * XgoduckRlCfg.num_steps_per_env, "weight": 0.25},
+                {"step": 1000 * XgoduckRlCfg.num_steps_per_env, "weight": 0.5},
+            ],
+        },
+    )
     cfg.rewards["pose"].weight = 1.3
     # Hip yaw inward stop is 0.22 rad.
     _std_s = dict(cfg.rewards["pose"].params["std_standing"])
@@ -359,7 +411,7 @@ def _xgoduck_velocity_cfg(**kwargs):
     cfg.rewards["pose"].params["std_standing"] = _std_s
     cfg.rewards["pose"].params["std_walking"] = _std_w
     cfg.rewards["pose"].params["std_running"] = _std_r
-    return cfg
+    return configure_xgoduck_physics(cfg)
 
 
 register_mjlab_task(
@@ -457,7 +509,7 @@ def _retarget_xgoduck_standup(cfg):
     cfg.sim.nconmax = 200
     cfg.sim.mujoco.iterations = 30
     cfg.sim.mujoco.ls_iterations = 50
-    return cfg
+    return configure_xgoduck_physics(cfg)
 
 
 def _xgoduck_standup_cfg(**kwargs):
@@ -523,7 +575,7 @@ def _xgoduck_ground_pick_cfg(**kwargs):
             "rise_end": _GP_RISE_END,
         },
     )
-    return cfg
+    return configure_xgoduck_physics(cfg)
 
 
 def _retarget_xgoduck_sitstand(cfg):
@@ -555,7 +607,7 @@ def _retarget_xgoduck_sitstand(cfg):
     gs["sitting_z_max"] = sit + 0.015
     gs["standing_z_min"] = stand - 0.005
     gs["standing_z_max"] = stand + 0.005
-    return cfg
+    return configure_xgoduck_physics(cfg)
 
 
 def _xgoduck_sitstand_cfg(**kwargs):
@@ -627,6 +679,20 @@ for _task_id, _factory, _kwargs, _runner_cfg in (
         rl_cfg=_runner_cfg,
         runner_cls=MicroduckOnPolicyRunner,
     )
+
+
+from .xgoduck_velocity_swizzle_env_cfg import (
+    XgoduckSwizzleRlCfg,
+    make_xgoduck_velocity_swizzle_env_cfg,
+)
+
+register_mjlab_task(
+    task_id="Mjlab-Velocity-Swizzle-XgoDuck",
+    env_cfg=make_xgoduck_velocity_swizzle_env_cfg(),
+    play_env_cfg=make_xgoduck_velocity_swizzle_env_cfg(play=True),
+    rl_cfg=XgoduckSwizzleRlCfg,
+    runner_cls=MicroduckOnPolicyRunner,
+)
 
 
 from mjlab_microduck.play_hook import maybe_inject_latest_checkpoint

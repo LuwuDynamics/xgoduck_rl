@@ -8,6 +8,7 @@ from mjlab_microduck.robot.xgoduck_constants import (
     XGODUCK_STAND_Z,
 )
 from . import mdp
+from .xgoduck_physics import configure_xgoduck_physics
 from .microduck_ball_kick_env_cfg import (
     MicroduckBallKickRlCfg,
     make_microduck_ball_kick_env_cfg,
@@ -18,7 +19,7 @@ from .microduck_roulade_env_cfg import (
     make_microduck_roulade_env_cfg,
 )
 
-# HOME mesh bounds at ±24° stand: toe x≈0.0451 m, foot center y≈+/-0.0413 m.
+# Ball placement retains clearance with the transferred 22-degree HOME pose.
 # At the nearest noisy placement, ball rear x=0.110-0.015-0.035=0.060 m:
 # ~15 mm clearance from the nominal toe, with room for joint/tilt noise.
 BALL_OFFSET_X = 0.110
@@ -41,7 +42,7 @@ def _configure_robot(cfg):
         for term in group.terms.values():
             if term.func.__name__ == "foot_contact_forces":
                 term.func = mdp.foot_contact_forces_safe
-    return cfg
+    return configure_xgoduck_physics(cfg)
 
 
 def make_xgoduck_ball_kick_env_cfg(play=False, kick_foot="right"):

@@ -4,7 +4,7 @@ Same joint, body, site, and foot-collision names as the upstream tasks.
 Actuator is the HLS1910 BAM model. Speed comes from voltage and back-EMF
 (max_velocity=100 disables the firmware goal-slew).
 
-STAND hip_pitch / ankle are ±24°. Trunk height is set so the soles clear the floor.
+STAND hip_pitch / ankle are ±22°. Trunk height is set so the soles clear the floor.
 """
 
 import math
@@ -28,26 +28,26 @@ assert XGODUCK_WALK_XML.exists(), f"XML not found: {XGODUCK_WALK_XML}"
 assert XGODUCK_ALLCOLLISIONS_XML.exists(), f"XML not found: {XGODUCK_ALLCOLLISIONS_XML}"
 assert _HLS1910_JSON.exists(), f"HLS1910 BAM params not found: {_HLS1910_JSON}"
 
-# Trunk z at XGODUCK STAND (hip_pitch/ankle ±24°) so soles sit 1 mm above the floor.
+# Trunk z at XGODUCK STAND (hip_pitch/ankle ±22°) so soles sit 1 mm above the floor.
 # CAD-zero (all joints 0) is 0.129394 m; the HOME leg bend needs ~10 mm more.
-XGODUCK_STAND_Z = 0.139439
+XGODUCK_STAND_Z = 0.139158
 # Same kinematic sole-clearance height at the sitstand SIT keyframe
 # (knee ±1.35, hip_pitch ±0.4079, ankle/hip_roll 0; neck stays HOME).
 XGODUCK_SIT_Z = 0.085868
 
-_DEG24 = math.radians(24)
+_DEG22 = math.radians(22)
 XGODUCK_HOME_FRAME = EntityCfg.InitialStateCfg(
     pos=(0.0, 0.0, XGODUCK_STAND_Z),
     joint_pos={
         r".*hip_yaw.*": 0.0,
         r".*left_hip_roll.*": -0.0873,
         r".*right_hip_roll.*": 0.0873,
-        r".*left_hip_pitch.*": -_DEG24,
-        r".*right_hip_pitch.*": _DEG24,
+        r".*left_hip_pitch.*": -_DEG22,
+        r".*right_hip_pitch.*": _DEG22,
         r".*left_knee.*": -0.0049,
         r".*right_knee.*": 0.0049,
-        r".*left_ankle.*": _DEG24,
-        r".*right_ankle.*": -_DEG24,
+        r".*left_ankle.*": _DEG22,
+        r".*right_ankle.*": -_DEG22,
         r".*neck_pitch.*": 0.3491,
         r".*head_pitch.*": 0.3491,
         r".*head_yaw.*": 0.0,
@@ -87,8 +87,10 @@ actuators = FrictionDRBamActuatorCfg(
     vin_range=(7.4, 8.0),
     vin_drop_gain_range=(0.0, 0.2),
     vin_min=7.0,  # sag floor below sampled vin (7.4–8.0) so load can still drop V
-    delay_min_lag=3,
-    delay_max_lag=6,
+    # mjlab applies delay through this buffer, not BAM JSON command_delay.
+    # One physics step is 4 ms in all XgoDuck task configs.
+    delay_min_lag=1,
+    delay_max_lag=1,
 )
 
 
