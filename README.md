@@ -12,7 +12,7 @@ Thank you to the authors of those projects.
 
 The task code follows the MicroDuck recipes, but the robot does not:
 
-- The MJCF, meshes, masses, and inertias are the XgoDuck model (`src/mjlab_microduck/robot/xgoduck/`), with SolidWorks-aligned mass properties (about 0.797789 kg). The default stand uses 22-degree hip/ankle angles. XgoDuck tasks retain positional CoM randomization while keeping mass and inertia fixed.
+- The MJCF and meshes use the XgoDuck model (`src/mjlab_microduck/robot/xgoduck/`).
 - Actuators are the HLS1910 BAM model in `src/mjlab_microduck/robot/xgoduck/params/1910_m6.json`, not the MicroDuck XL330.
 
 ## Install
@@ -32,6 +32,7 @@ From the repository root:
 
 ```bash
 uv run train Mjlab-Velocity-Flat-XgoDuck --env.scene.num-envs 4096
+uv run train Mjlab-Velocity-Swizzle-XgoDuck --env.scene.num-envs 4096
 ```
 
 `uv run list-envs` prints every registered task. XgoDuck checkpoints and TensorBoard logs go under `logs/rsl_rl/<experiment>/`.
@@ -51,34 +52,13 @@ uv run train Mjlab-Velocity-Flat-XgoDuck --env.scene.num-envs 4096
 | `Mjlab-Roulade-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_roulade/` |
 | `Mjlab-Velocity-Swizzle-XgoDuck` | flat | `logs/rsl_rl/xgoduck_velocity_swizzle/` |
 
-### Roller skating and Swizzle
-
-The XgoDuck roller model has four passive wheels with a 15 mm radius and
-SolidWorks mass properties (about 0.874 kg). Its MJCF and meshes are in
-`src/mjlab_microduck/robot/xgoduck_roller/`. It shares the walk model's HLS1910
-actuators and default head posture.
-
-`Mjlab-Velocity-Swizzle-XgoDuck` adapts the MicroDuck Swizzle recipe: both skates
-stay grounded while the legs open and close symmetrically. Positive longitudinal
-commands push forward; negative commands push backward. The third twist component
-is a heading error in radians. All four head-command deltas stay zero, with
-position and sustained-bias penalties encouraging the default posture.
-
-Bearing drag and heading control follow the progressive MicroDuck curricula.
-Training randomizes tire sliding friction over 0.2–1.0. Mass and inertia remain
-fixed while positional CoM randomization is retained.
-
-```bash
-uv run train Mjlab-Velocity-Swizzle-XgoDuck --env.scene.num-envs 4096
-uv run play Mjlab-Velocity-Swizzle-XgoDuck
-```
-
 ## Play
 
 `play` with no checkpoint flag loads the newest `model_*.pt` in that task's experiment directory:
 
 ```bash
 uv run play Mjlab-Velocity-Flat-XgoDuck
+uv run play Mjlab-Velocity-Swizzle-XgoDuck
 ```
 
 Pass `--checkpoint-file path/to/model_XXXX.pt` to choose a specific checkpoint.
