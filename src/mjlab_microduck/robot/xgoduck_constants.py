@@ -4,9 +4,11 @@ Same joint, body, site, and foot-collision names as the upstream tasks.
 Actuator is the HLS1910 BAM model. Speed comes from voltage and back-EMF
 (max_velocity=100 disables the firmware goal-slew).
 
-STAND hip_pitch / ankle are ±22°. Trunk height is set so the soles clear the floor.
+Walk retains its original ±24° HOME pose; other tasks use ±22°.
+Trunk heights keep the soles clear of the floor.
 """
 
+from copy import deepcopy
 import math
 import os
 from pathlib import Path
@@ -56,6 +58,17 @@ XGODUCK_HOME_FRAME = EntityCfg.InitialStateCfg(
     joint_vel={".*": 0.0},
 )
 
+# Restore the original Walk pose without changing tricks or roller HOME.
+XGODUCK_WALK_STAND_Z = 0.139439
+XGODUCK_WALK_HOME_FRAME = deepcopy(XGODUCK_HOME_FRAME)
+XGODUCK_WALK_HOME_FRAME.pos = (0.0, 0.0, XGODUCK_WALK_STAND_Z)
+XGODUCK_WALK_HOME_FRAME.joint_pos.update({
+    r".*left_hip_pitch.*": -math.radians(24),
+    r".*right_hip_pitch.*": math.radians(24),
+    r".*left_ankle.*": math.radians(24),
+    r".*right_ankle.*": -math.radians(24),
+})
+
 # Named `*_collision` geoms. Bit 0 = world/floor, bit 1 = head↔base.
 # Walk: feet only. Standup: every link has a mesh and hits the floor.
 # Feet and other links: contype=1 conaffinity=0 → floor only, no robot-robot.
@@ -88,7 +101,7 @@ actuators = FrictionDRBamActuatorCfg(
     vin_drop_gain_range=(0.0, 0.2),
     vin_min=7.0,  # sag floor below sampled vin (7.4–8.0) so load can still drop V
     # mjlab applies delay through this buffer, not BAM JSON command_delay.
-    # One physics step is 4 ms in all XgoDuck task configs.
+    # Non-Walk tasks use 4 ms physics steps; Walk overrides this buffer below.
     delay_min_lag=1,
     delay_max_lag=1,
 )
@@ -111,12 +124,17 @@ def get_standup_spec() -> mujoco.MjSpec:
     return _disable_unnamed_geoms(mujoco.MjSpec.from_file(str(XGODUCK_ALLCOLLISIONS_XML)))
 
 
+# Walk uses the original 3–6-step delay with 5 ms physics (15–30 ms).
+_walk_actuators = deepcopy(actuators)
+_walk_actuators.delay_min_lag = 3
+_walk_actuators.delay_max_lag = 6
+
 XGODUCK_WALK_ROBOT_CFG = EntityCfg(
     spec_fn=get_walk_spec,
-    init_state=XGODUCK_HOME_FRAME,
+    init_state=XGODUCK_WALK_HOME_FRAME,
     collisions=(XGODUCK_COLLISION,),
     articulation=EntityArticulationInfoCfg(
-        actuators=(actuators,),
+        actuators=(_walk_actuators,),
         soft_joint_pos_limit_factor=0.9,
     ),
 )

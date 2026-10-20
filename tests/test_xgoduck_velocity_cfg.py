@@ -49,3 +49,57 @@ def test_microduck_velocity_keeps_original_walk_recipe():
     assert actor["joint_pos"].noise.n_max == 0.001
     assert cfg.rewards["pose"].weight == 1.0
     assert cfg.rewards["pose"].params["std_walking"][r".*hip_yaw.*"] == 0.3
+
+
+def test_walk_matches_original_reward_and_command_recipe():
+    """Later Walk additions must not survive the recipe rollback."""
+    import pytest
+
+    for kwargs in ({}, {"play": True}, {"rough": True}, {"rough": True, "play": True}):
+        original = make_microduck_velocity_env_cfg(**kwargs)
+        walk = _xgoduck_velocity_cfg(**kwargs)
+        assert walk.rewards.keys() == original.rewards.keys()
+        for name in original.rewards:
+            if name != "pose":
+                assert walk.rewards[name].weight == pytest.approx(original.rewards[name].weight)
+        for name in ("track_linear_velocity", "air_time", "foot_clearance", "foot_swing_height"):
+            assert walk.rewards[name].params == original.rewards[name].params
+        assert walk.curriculum.keys() == original.curriculum.keys()
+        assert walk.curriculum["head_pose_range"].params == original.curriculum["head_pose_range"].params
+        assert walk.commands["head_pose"].ranges == original.commands["head_pose"].ranges
+        assert walk.commands["twist"].rel_backward_envs == 0.0
+        assert walk.sim.mujoco.timestep == original.sim.mujoco.timestep == 0.005
+        assert walk.decimation == original.decimation == 4
+        assert ("randomize_mass_inertia" in walk.events) == ("randomize_mass_inertia" in original.events)
+
+
+def test_walk_pose_and_delay_are_isolated_from_other_tasks():
+    """Restoring Walk must not mutate the shared roller/trick configuration."""
+    import math
+    import pytest
+    from mjlab_microduck.robot.xgoduck_constants import (
+        XGODUCK_HOME_FRAME, XGODUCK_STANDUP_ROBOT_CFG, actuators,
+    )
+    from mjlab_microduck.tasks.xgoduck_velocity_swizzle_env_cfg import (
+        make_xgoduck_velocity_swizzle_env_cfg,
+    )
+
+    walk = _xgoduck_velocity_cfg()
+    robot = walk.scene.entities["robot"]
+    assert robot.init_state.pos[2] == pytest.approx(0.139439)
+    assert robot.init_state.joint_pos[r".*left_hip_pitch.*"] == pytest.approx(-math.radians(24))
+    servo = robot.articulation.actuators[0]
+    assert (servo.delay_min_lag, servo.delay_max_lag) == (3, 6)
+    robot.init_state.joint_pos[r".*left_hip_pitch.*"] = 0.0
+    servo.delay_min_lag = 0
+
+    fresh = _xgoduck_velocity_cfg().scene.entities["robot"]
+    assert fresh.init_state.joint_pos[r".*left_hip_pitch.*"] == pytest.approx(-math.radians(24))
+    assert fresh.articulation.actuators[0].delay_min_lag == 3
+    assert XGODUCK_HOME_FRAME.joint_pos[r".*left_hip_pitch.*"] == pytest.approx(-math.radians(22))
+    assert XGODUCK_STANDUP_ROBOT_CFG.init_state is XGODUCK_HOME_FRAME
+    assert (actuators.delay_min_lag, actuators.delay_max_lag) == (1, 1)
+    skating = make_xgoduck_velocity_swizzle_env_cfg()
+    assert skating.scene.entities["robot"].init_state.joint_pos[r".*left_hip_pitch.*"] == pytest.approx(-math.radians(22))
+    assert skating.sim.mujoco.timestep == 0.004 and skating.decimation == 5
+    assert "randomize_mass_inertia" not in skating.events
