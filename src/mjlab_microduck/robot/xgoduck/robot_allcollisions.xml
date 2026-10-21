@@ -40,7 +40,7 @@
   <worldbody>
     <body name="trunk_base" pos="0 0 0.129394" quat="1 0 0 0" childclass="microduck">
       <freejoint name="trunk_base_freejoint"/>
-      <inertial pos="-0.01327575578150381 -1.265565997738796e-05 -0.02355284245744959" mass="0.2286207806414798" fullinertia="0.0001577011579702192 0.0002228335849227176 0.0001870961143758062 5.082512236504458e-08 -4.243724208376558e-05 5.940001813752121e-08" />
+      <inertial pos="-0.014276 -1.265565997738796e-05 -0.02355284245744959" mass="0.2286207806414798" fullinertia="0.0001577011579702192 0.0002228335849227176 0.0001870961143758062 5.082512236504458e-08 -4.243724208376558e-05 5.940001813752121e-08" />
       <geom type="mesh" class="visual" mesh="trunk_base"/>
       <geom type="mesh" name="trunk_collision" class="collision" mesh="trunk_base"/>
       <site group="3" name="imu" pos="-0.013982 -1.3e-05 -0.023873"/>

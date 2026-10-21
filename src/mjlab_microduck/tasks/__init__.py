@@ -330,11 +330,18 @@ XgoduckRlCfg = replace(
 )
 
 
+from mjlab.managers import RewardTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
+
 from .xgoduck_physics import configure_xgoduck_physics
 
 
 def _xgoduck_velocity_cfg(**kwargs):
     cfg = make_microduck_velocity_env_cfg(**kwargs)
+    # MicroDuck's legacy head list includes bearing_roll, a right hip on XgoDuck.
+    cfg.events["randomize_head_com"].params["asset_cfg"].body_names = (
+        "neck", "neck_pitch", "yaw_roll_motion", "jaw_soft",
+    )
     cfg.scene.entities = {"robot": deepcopy(XGODUCK_WALK_ROBOT_CFG)}
     cfg.events["reset_base"].params["pose_range"]["z"] = (
         XGODUCK_WALK_STAND_Z - 0.005,
@@ -354,6 +361,26 @@ def _xgoduck_velocity_cfg(**kwargs):
     actor["joint_pos"].noise.n_min = -0.01
     actor["joint_pos"].noise.n_max = 0.01
     cfg.rewards["pose"].weight = 1.3
+    cfg.rewards["track_linear_velocity"].weight = 3.0
+    cfg.rewards["track_linear_velocity"].params["std"] = 0.25
+    cfg.rewards["foot_swing_height"].weight = -5.0
+    # Keep the hips near HOME at low commanded speed, while allowing turns.
+    cfg.rewards["hip_yaw_home"] = RewardTermCfg(
+        func=microduck_mdp.joint_pos_l1_when_standing,
+        weight=-1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", joint_names=("left_hip_yaw", "right_hip_yaw"),
+            ),
+            "command_name": "twist",
+            "linear_threshold": 0.03,
+            "angular_threshold": 1e-6,
+        },
+    )
+    # Sample straight reverse commands in 15% of moving training scenarios.
+    if not kwargs.get("play", False):
+        cfg.commands["twist"].rel_backward_envs = 0.15
+        cfg.commands["twist"].backward_speed_range = (-0.2, -0.1)
     # Hip yaw inward stop is 0.22 rad.
     _std_s = dict(cfg.rewards["pose"].params["std_standing"])
     _std_w = dict(cfg.rewards["pose"].params["std_walking"])

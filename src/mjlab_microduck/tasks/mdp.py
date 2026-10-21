@@ -3928,6 +3928,29 @@ def stillness_at_zero_command(
     return is_standing_cmd * stillness
 
 
+def joint_pos_l1_when_standing(
+    env: ManagerBasedRlEnv,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+    command_name: str = "twist",
+    linear_threshold: float = 0.03,
+    angular_threshold: float = 1e-6,
+) -> torch.Tensor:
+    """L1 joint deviation from HOME below the commanded translation threshold.
+
+    A nonzero turn command disables the cost. Gate on commands, not measured
+    motion: stopping at a joint limit must not make the position cost disappear.
+    """
+    command = env.command_manager.get_command(command_name)
+    low_speed = torch.linalg.vector_norm(command[:, :2], dim=-1) < linear_threshold
+    no_turn = command[:, 2].abs() <= angular_threshold
+    asset: Entity = env.scene[asset_cfg.name]
+    error = (
+        asset.data.joint_pos[:, asset_cfg.joint_ids]
+        - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+    )
+    return error.abs().sum(dim=-1) * (low_speed & no_turn)
+
+
 def joint_vel_l2_when_standing(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,

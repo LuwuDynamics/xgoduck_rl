@@ -51,23 +51,31 @@ def test_microduck_velocity_keeps_original_walk_recipe():
     assert cfg.rewards["pose"].params["std_walking"][r".*hip_yaw.*"] == 0.3
 
 
-def test_walk_matches_original_reward_and_command_recipe():
-    """Later Walk additions must not survive the recipe rollback."""
+def test_walk_keeps_original_recipe_except_explicit_overrides():
+    """Walk tuning is isolated from the upstream MicroDuck reward recipe."""
     import pytest
 
     for kwargs in ({}, {"play": True}, {"rough": True}, {"rough": True, "play": True}):
         original = make_microduck_velocity_env_cfg(**kwargs)
         walk = _xgoduck_velocity_cfg(**kwargs)
-        assert walk.rewards.keys() == original.rewards.keys()
+        assert set(walk.rewards) == set(original.rewards) | {"hip_yaw_home"}
         for name in original.rewards:
-            if name != "pose":
+            if name not in ("pose", "track_linear_velocity", "foot_swing_height"):
                 assert walk.rewards[name].weight == pytest.approx(original.rewards[name].weight)
-        for name in ("track_linear_velocity", "air_time", "foot_clearance", "foot_swing_height"):
+        assert walk.rewards["track_linear_velocity"].weight == pytest.approx(3.0)
+        assert walk.rewards["track_linear_velocity"].params == {
+            **original.rewards["track_linear_velocity"].params, "std": 0.25,
+        }
+        assert original.rewards["track_linear_velocity"].weight == pytest.approx(2.0)
+        assert original.rewards["track_linear_velocity"].params["std"] == pytest.approx(0.1 ** 0.5)
+        assert walk.rewards["foot_swing_height"].weight == pytest.approx(-5.0)
+        assert original.rewards["foot_swing_height"].weight == pytest.approx(-0.25)
+        for name in ("air_time", "foot_clearance", "foot_swing_height"):
             assert walk.rewards[name].params == original.rewards[name].params
         assert walk.curriculum.keys() == original.curriculum.keys()
         assert walk.curriculum["head_pose_range"].params == original.curriculum["head_pose_range"].params
         assert walk.commands["head_pose"].ranges == original.commands["head_pose"].ranges
-        assert walk.commands["twist"].rel_backward_envs == 0.0
+        assert walk.commands["twist"].rel_backward_envs == (0.0 if kwargs.get("play") else 0.15)
         assert walk.sim.mujoco.timestep == original.sim.mujoco.timestep == 0.005
         assert walk.decimation == original.decimation == 4
         assert ("randomize_mass_inertia" in walk.events) == ("randomize_mass_inertia" in original.events)
