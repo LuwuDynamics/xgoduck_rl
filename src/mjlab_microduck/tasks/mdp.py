@@ -1709,6 +1709,32 @@ def wheel_speed_reward(
     return torch.clamp(cmd_x, min=0.0) * torch.tanh(torch.clamp(forward_omega, min=0.0) / omega_scale)
 
 
+def skating_body_speed_reward(
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    vel_scale: float = 0.3,
+    bidirectional: bool = False,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+    """Reward actual forward translation, on the wheel-speed reward's scale.
+
+    Commands are push intensity, not a velocity target. Motion opposite the
+    command and stationary wheel spinning earn no body-speed reward.
+    """
+    cmd_x = env.command_manager.get_command(command_name)[:, 0]
+    asset: Entity = env.scene[asset_cfg.name]
+    forward_speed = torch.nan_to_num(
+        asset.data.root_link_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0
+    )
+    if bidirectional:
+        aligned_speed = torch.sign(cmd_x) * forward_speed
+        command_magnitude = torch.abs(cmd_x)
+    else:
+        aligned_speed = forward_speed
+        command_magnitude = torch.clamp(cmd_x, min=0.0)
+    return command_magnitude * torch.tanh(torch.clamp(aligned_speed, min=0.0) / vel_scale)
+
+
 def coasting_reward(
     env: ManagerBasedRlEnv,
     command_name: str,
@@ -3439,6 +3465,24 @@ def velocity_tracking_std_curriculum(
     return torch.tensor([current_std])
 
 
+def push_velocity_linear_curriculum(
+    env: ManagerBasedRlEnv,
+    env_ids: torch.Tensor,
+    event_name: str,
+    max_velocity_range: dict[str, tuple[float, float]],
+    end_step: int,
+) -> torch.Tensor:
+    """Linearly ramp additive world-frame velocity kicks using total env steps."""
+    del env_ids
+    progress = min(1.0, max(0.0, float(env.common_step_counter) / end_step))
+    term = env.event_manager.get_term_cfg(event_name)
+    term.params["velocity_range"] = {
+        axis: (lo * progress, hi * progress)
+        for axis, (lo, hi) in max_velocity_range.items()
+    }
+    return torch.tensor([progress], device=env.device)
+
+
 def push_curriculum(
     env: ManagerBasedRlEnv,
     env_ids: torch.Tensor,
@@ -5015,6 +5059,13 @@ def leg_symmetry_reward(
     lids, rids = env._leg_sym_ids
     q = asset.data.joint_pos
     return -torch.abs(q[:, lids] + q[:, rids]).mean(dim=-1)
+
+
+def four_wheels_grounded_reward(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
+    """Small bonus only when all four tires simultaneously touch terrain."""
+    found = env.scene[sensor_name].data.found
+    assert found is not None
+    return (found > 0).all(dim=1).float()
 
 
 def grounded_reward(

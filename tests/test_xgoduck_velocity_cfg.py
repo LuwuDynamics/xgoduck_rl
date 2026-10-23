@@ -108,6 +108,66 @@ def test_walk_pose_and_delay_are_isolated_from_other_tasks():
     assert XGODUCK_STANDUP_ROBOT_CFG.init_state is XGODUCK_HOME_FRAME
     assert (actuators.delay_min_lag, actuators.delay_max_lag) == (1, 1)
     skating = make_xgoduck_velocity_swizzle_env_cfg()
-    assert skating.scene.entities["robot"].init_state.joint_pos[r".*left_hip_pitch.*"] == pytest.approx(-math.radians(22))
+    assert skating.scene.entities["robot"].init_state.joint_pos["left_hip_pitch"] == pytest.approx(-math.radians(10))
     assert skating.sim.mujoco.timestep == 0.004 and skating.decimation == 5
     assert "randomize_mass_inertia" not in skating.events
+
+
+def test_swizzle_reset_starts_at_grounded_home():
+    # Reset offsets must not add the standing height a second time.
+    import re
+    import mujoco
+    from mjlab_microduck.tasks.xgoduck_velocity_swizzle_env_cfg import (
+        make_xgoduck_velocity_swizzle_env_cfg,
+    )
+
+    for play in (False, True):
+        cfg = make_xgoduck_velocity_swizzle_env_cfg(play=play)
+        robot = cfg.scene.entities["robot"]
+        reset = cfg.events["reset_base"].params
+        joints = cfg.events["reset_robot_joints"].params
+        assert reset["velocity_range"] == {}
+        assert joints["position_range"] == joints["velocity_range"] == (0.0, 0.0)
+        assert reset["pose_range"].get("roll", (0.0, 0.0)) == (0.0, 0.0)
+        assert reset["pose_range"].get("pitch", (0.0, 0.0)) == (0.0, 0.0)
+        model = robot.spec_fn().compile()
+        data = mujoco.MjData(model)
+        for z_offset in reset["pose_range"]["z"]:
+            data.qpos[:3] = robot.init_state.pos
+            data.qpos[2] += z_offset
+            data.qpos[3:7] = robot.init_state.rot
+            for i in range(model.njnt):
+                if model.jnt_type[i] == mujoco.mjtJoint.mjJNT_FREE:
+                    continue
+                name = model.joint(i).name
+                for pattern, value in robot.init_state.joint_pos.items():
+                    if re.fullmatch(pattern, name):
+                        data.qpos[model.jnt_qposadr[i]] = value
+            mujoco.mj_forward(model, data)
+            bottoms = []
+            for i in range(model.ngeom):
+                if not re.fullmatch(r"(left|right)_(front|rear)_tire_collision", model.geom(i).name):
+                    continue
+                mesh = model.geom_dataid[i]
+                start = model.mesh_vertadr[mesh]
+                vertices = model.mesh_vert[start:start + model.mesh_vertnum[mesh]]
+                world = vertices @ data.geom_xmat[i].reshape(3, 3).T + data.geom_xpos[i]
+                bottoms.append(world[:, 2].min())
+            assert len(bottoms) == 4
+            # CAD left/right tolerances are sub-millimetre; no drop or deep overlap.
+            assert abs(min(bottoms)) < 5e-5
+            assert max(bottoms) < 5e-4
+
+
+def test_swizzle_uses_historical_fall_termination():
+    import math
+    import pytest
+    from mjlab_microduck.tasks.xgoduck_velocity_swizzle_env_cfg import (
+        make_xgoduck_velocity_swizzle_env_cfg,
+    )
+
+    for play in (False, True):
+        cfg = make_xgoduck_velocity_swizzle_env_cfg(play=play)
+        assert cfg.terminations["fell_over"].params["limit_angle"] == pytest.approx(math.radians(70))
+        assert "body_ground_contact" not in cfg.terminations
+        assert "termination_penalty" not in cfg.rewards

@@ -1,6 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <mujoco model="xgoduck_roller">
   <compiler angle="radian" meshdir="assets" autolimits="true" />
+  <option timestep="0.002" />
   <default>
     <default class="microduck">
       <joint frictionloss="0.1" armature="0.005" />
@@ -60,7 +61,7 @@
     <mesh name="right_rear_tire" file="right_rear_tire.STL" />
   </asset>
   <worldbody>
-    <body name="trunk_base" childclass="microduck" pos="0 0 0.1638355460">
+    <body name="trunk_base" childclass="microduck" pos="0 0 0.15170712419766338">
       <inertial pos="-0.013275755781503836 -1.2655659977387727e-05 -0.023552842457449586" mass="0.22862078064147978" fullinertia="0.0001577011579702192 0.00022283358492271728 0.00018709611437580585 5.082512236488553e-08 -4.243724208376541e-05 5.9400018137520314e-08" />
       <body name="yaw2roll" pos="0.02 0.0175 -0.026" quat="-2.59734e-06 0.707105 -0.707108 2.59735e-06">
         <inertial pos="-2.787679254101505e-10 -0.0018364336320070007 0.018903886586534503" mass="0.03170602779137935" fullinertia="5.82520185571448e-06 4.472408912930277e-06 3.653321776916983e-06 -2.901466584089026e-14 -1.410220122540426e-13 -1.7169924117641715e-07" />
@@ -81,13 +82,13 @@
                   <inertial pos="-1.3877787807814457e-17 0 -0.006999999999999999" mass="0.02" fullinertia="1.3283312019758417e-06 1.3283312019758421e-06 2.448051282068332e-06 2.6469779601696904e-22 -2.0760431660942835e-37 2.82118644197349e-37" />
                   <joint name="passive_LF_wheel" type="hinge" axis="0 0 1" limited="false" class="passive_joint" />
                   <geom name="left_front_tire_visual" type="mesh" mesh="left_front_tire" rgba="0.8 0.8 0.8 1" class="visual" />
-                  <geom name="left_front_tire_collision" type="mesh" mesh="left_front_tire" condim="3" friction="1 0.005 0.0001" contype="1" conaffinity="0" priority="1" class="collision" />
+                  <geom name="left_front_tire_collision" type="mesh" mesh="left_front_tire" condim="3" friction="1 0.005 0.0001" contype="1" conaffinity="0" priority="1" class="collision" solref="0.012 1" />
                 </body>
                 <body name="left_rear_tire" pos="0.032 0.0255 -0.008" quat="0.707105 0 0 -0.707108">
                   <inertial pos="0 1.3877787807814457e-17 -0.007000000000000006" mass="0.02" fullinertia="1.3283312019758409e-06 1.3283312019758417e-06 2.448051282068332e-06 2.64697796016969e-22 -1.9525220477862317e-38 -9.4039548065783e-38" />
                   <joint name="passive_LR_wheel" type="hinge" axis="0 0 1" limited="false" class="passive_joint" />
                   <geom name="left_rear_tire_visual" type="mesh" mesh="left_rear_tire" rgba="0.8 0.8 0.8 1" class="visual" />
-                  <geom name="left_rear_tire_collision" type="mesh" mesh="left_rear_tire" condim="3" friction="1 0.005 0.0001" contype="1" conaffinity="0" priority="1" class="collision" />
+                  <geom name="left_rear_tire_collision" type="mesh" mesh="left_rear_tire" condim="3" friction="1 0.005 0.0001" contype="1" conaffinity="0" priority="1" class="collision" solref="0.012 1" />
                 </body>
                 <geom name="left_ankle_visual" type="mesh" mesh="left_ankle" rgba="0.8 0.8 0.8 1" class="visual" />
                 <site name="left_foot" pos="0.0458698242111254 -0.0077330635806913 -0.01485768562492597" quat="0.5000051096553205 0.4999985708860376 -0.4999981219923186 -0.4999981974313958" group="3" />
@@ -151,13 +152,13 @@
                   <inertial pos="-6.938893903907228e-18 0 -0.006999999999999999" mass="0.02" fullinertia="1.328331201975841e-06 1.3283312019758415e-06 2.448051282068331e-06 -1.3234889800848466e-22 -1.0390708646359206e-22 -1.742451616065297e-23" />
                   <joint name="passive_RF_wheel" type="hinge" axis="0 0 -1" limited="false" class="passive_joint" />
                   <geom name="right_front_tire_visual" type="mesh" mesh="right_front_tire" rgba="0.8 0.8 0.8 1" class="visual" />
-                  <geom name="right_front_tire_collision" type="mesh" mesh="right_front_tire" condim="3" friction="1 0.005 0.0001" contype="1" conaffinity="0" priority="1" class="collision" />
+                  <geom name="right_front_tire_collision" type="mesh" mesh="right_front_tire" condim="3" friction="1 0.005 0.0001" contype="1" conaffinity="0" priority="1" class="collision" solref="0.012 1" />
                 </body>
                 <body name="right_rear_tire" pos="0.032 -0.0255 -0.008" quat="0.707105 0 0 -0.707108">
                   <inertial pos="-6.938893903907228e-18 0 -0.006999999999999992" mass="0.02" fullinertia="1.3283312019758413e-06 1.3283312019758417e-06 2.448051282068331e-06 -1.8528845721187843e-22 -1.0731807114041655e-22 -4.3242503042020754e-23" />
                   <joint name="passive_RR_wheel" type="hinge" axis="0 0 -1" limited="false" class="passive_joint" />
                   <geom name="right_rear_tire_visual" type="mesh" mesh="right_rear_tire" rgba="0.8 0.8 0.8 1" class="visual" />
-                  <geom name="right_rear_tire_collision" type="mesh" mesh="right_rear_tire" condim="3" friction="1 0.005 0.0001" contype="1" conaffinity="0" priority="1" class="collision" />
+                  <geom name="right_rear_tire_collision" type="mesh" mesh="right_rear_tire" condim="3" friction="1 0.005 0.0001" contype="1" conaffinity="0" priority="1" class="collision" solref="0.012 1" />
                 </body>
                 <geom name="right_ankle_visual" type="mesh" mesh="right_ankle" rgba="0.8 0.8 0.8 1" class="visual" />
                 <site name="right_foot" pos="0.04586982598294786 0.007732945891275998 -0.014857685903290025" quat="0.500004504166269 -0.49999821415170925 -0.4999943575508921 0.5000029240672658" group="3" />
@@ -197,6 +198,6 @@
     <position class="chosen_actuator" name="right_ankle" joint="right_ankle" />
   </actuator>
   <keyframe>
-    <key name="home" qpos="0.0 0.0 0.16383554600998806 1.0 0.0 0.0 0.0 0.0 -0.0873 -0.3839724354387525 -0.0049 0.3839724354387525 0.0 0.0 0.3491 0.3491 0.0 0.0 0.0 0.0873 0.3839724354387525 0.0049 -0.3839724354387525 0.0 0.0" ctrl="0.0 -0.0873 -0.3839724354387525 -0.0049 0.3839724354387525 0.3491 0.3491 0.0 0.0 0.0 0.0873 0.3839724354387525 0.0049 -0.3839724354387525" />
+    <key name="home" qpos="0 0 0.15170712419766338 1 0 0 0 0 0.087266462599716474 -0.17453292519943295 0.17453292519943295 0.3490658503988659 0 0 0.43633231299858238 0.43633231299858238 0 0 0 -0.087266462599716474 0.17453292519943295 -0.17453292519943295 -0.3490658503988659 0 0" ctrl="0 0.087266462599716474 -0.17453292519943295 0.17453292519943295 0.3490658503988659 0.43633231299858238 0.43633231299858238 0 0 0 -0.087266462599716474 0.17453292519943295 -0.17453292519943295 -0.3490658503988659" />
   </keyframe>
 </mujoco>

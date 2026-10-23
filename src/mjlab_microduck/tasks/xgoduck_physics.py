@@ -1,15 +1,14 @@
-"""Shared CAD inertials and servo timing for XgoDuck tasks."""
+"""Shared physics timing and mass-randomization policy for XgoDuck tasks."""
 
 
-def configure_xgoduck_physics(cfg):
-    """Keep CAD mass/inertia fixed and apply a 4 ms actuator delay at 50 Hz.
+def configure_xgoduck_physics(cfg, *, randomize_mass_inertia: bool = False):
+    """Use 4 ms physics at 50 Hz and optionally retain inherited mass/inertia DR.
 
-    BAM's JSON delay is identification metadata in mjlab. The actuator uses
-    delay_min_lag=delay_max_lag=1, so a 4 ms physics step makes the effective
-    command delay match 1910_m6.json without interpolation or extra filtering.
-    Five physics steps retain the existing 20 ms policy/control period.
+    Command delay is selected by each robot's actuator buffer, independently
+    of the identification metadata stored in the BAM JSON.
     """
-    cfg.events.pop("randomize_mass_inertia", None)
+    if not randomize_mass_inertia:
+        cfg.events.pop("randomize_mass_inertia", None)
     cfg.sim.mujoco.timestep = 0.004
     cfg.decimation = 5
     return cfg
