@@ -750,7 +750,9 @@ def make_microduck_velocity_env_cfg(
         cfg.scene.terrain.terrain_generator = None
     else:
         cfg.scene.terrain.terrain_type = "generator"
-        cfg.scene.terrain.terrain_generator = MICRODUCK_ROUGH_TERRAINS_CFG
+        # Play changes the grid size/curriculum; never mutate the shared
+        # template or a previously constructed training environment.
+        cfg.scene.terrain.terrain_generator = deepcopy(MICRODUCK_ROUGH_TERRAINS_CFG)
 
         # Soften terrain box contacts: adjacent boxes at different heights create
         # hard edges that destabilise the contact solver and produce NaN forces.

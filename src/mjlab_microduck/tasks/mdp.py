@@ -4732,8 +4732,11 @@ class VelocityCommandCommandOnly(UniformVelocityCommand):
         # turning. Mirrors the base rel_forward_envs mechanism.
         p = getattr(self.cfg, "rel_turn_in_place_envs", 0.0)
         if p > 0.0:
-            r = torch.empty(len(env_ids), device=self.device)
-            turn_ids = env_ids[r.uniform_(0.0, 1.0) < p]
+            # Keep the standing curriculum's samples standing. Otherwise the
+            # turn override silently consumes part of every standing bucket.
+            eligible = env_ids[~self.is_standing_env[env_ids]]
+            r = torch.empty(len(eligible), device=self.device)
+            turn_ids = eligible[r.uniform_(0.0, 1.0) < p]
             self.vel_command_b[turn_ids, 0] = 0.0
             self.vel_command_b[turn_ids, 1] = 0.0
             lo, hi = self.cfg.ranges.ang_vel_z
@@ -4743,6 +4746,9 @@ class VelocityCommandCommandOnly(UniformVelocityCommand):
             mag = torch.empty(len(turn_ids), device=self.device).uniform_(0.4 * maxr, maxr)
             self.vel_command_b[turn_ids, 2] = sign * mag
             self.is_standing_env[turn_ids] = False
+            self.is_heading_env[turn_ids] = False
+            self.is_world_env[turn_ids] = False
+            self.is_forward_env[turn_ids] = False
             self.vel_command_w[turn_ids] = self.vel_command_b[turn_ids]
 
         # Optional straight-backward practice. Apply after the forward/turn
@@ -6906,10 +6912,9 @@ def trunk_upward_velocity_penalty(
 # RUN-1 LESSON (2026-08): with unsupported rotation counting and uncapped
 # paid rate, the optimal policy is a violent ballistic whip ("breakdance") —
 # same 2π, finishes sooner, more discounted annuity. Doesn't transfer. Fixes:
-#   • SUPPORT GATE: the accumulator only integrates while some robot geom
-#     touches the terrain (robot_ground_contact sensor) — a real roulade never
-#     leaves the ground; airborne rotation now earns nothing and cannot open
-#     the completion gate.
+#   • SUPPORT GATE: only supported, sagittal forward rotation earns progress.
+#     All backward rotation is charged, even airborne, so contact gating
+#     cannot turn repeated partial forward/backward rocking into a full roll.
 #   • HEAD LATCH: the landing annuity additionally requires head-ground
 #     contact to have occurred while accum was in the first-quadrant window —
 #     "went over the head" is a requirement, not a 0.5-weight suggestion.
@@ -6919,8 +6924,9 @@ def trunk_upward_velocity_penalty(
 #
 # Per-env state on the env object (created lazily, reset by
 # reset_roulade_state):
-#   env._roulade_accum      — supported-only integral of forward pitch rate (rad)
-#   env._roulade_max        — max(accum) so far this episode (progress frontier)
+#   env._roulade_accum      — unwrapped geometric sagittal rotation (rad)
+#   env._roulade_supported_accum — qualified forward / all backward rotation
+#   env._roulade_max        — maximum qualified progress so far this episode
 #   env._roulade_paid       — frontier already paid out by roulade_progress
 #   env._roulade_head_latch — True once the head touched ground mid-first-quadrant
 
@@ -6998,38 +7004,54 @@ def _roulade_state(env: ManagerBasedRlEnv) -> tuple:
         env._roulade_paid = z.clone()
         env._roulade_head_latch = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         env._roulade_last_update_step = -1
+    if not hasattr(env, "_roulade_supported_accum"):
+        env._roulade_supported_accum = env._roulade_accum.clone()
     return env._roulade_accum, env._roulade_max, env._roulade_paid
 
 
+def _roulade_pitch_angle(quat: torch.Tensor) -> torch.Tensor:
+    """Wrapped sagittal angle, invariant to yaw and quaternion sign.
+
+    Project the forward axis onto the vertical plane perpendicular to the
+    horizontal lateral axis. Unlike integrating body-Y angular velocity,
+    closed yaw/roll loops cannot create fictitious forward-turn progress.
+    """
+    rotation = matrix_from_quat(quat)
+    lateral_horizontal = rotation[:, :2, 1].norm(dim=-1).clamp_min(1e-6)
+    horizontal_forward = (
+        rotation[:, 0, 0] * rotation[:, 1, 1]
+        - rotation[:, 1, 0] * rotation[:, 0, 1]
+    ) / lateral_horizontal
+    return torch.atan2(-rotation[:, 2, 0], horizontal_forward)
+
+
 def _update_roulade_accum(env: ManagerBasedRlEnv, asset: Entity) -> None:
-    """Integrate forward pitch rate into the per-env rotation accumulator.
+    """Track geometric rotation; charge reversals even without valid support.
 
-    Step-guarded so that multiple reward terms reading the accumulator in the
-    same control step don't double-integrate. The frontier (max) only moves
-    forward; backward rocking (wind-up) neither pays nor un-pays.
-
-    SUPPORT GATE (run-1 fix): rotation is integrated only while the robot
-    touches the terrain — a roulade is a supported motion; ballistic flips
-    accumulate nothing, so they neither get paid nor open the completion gate.
-
-    Also latches env._roulade_head_latch when the head touches the ground
-    while accum is inside the first-quadrant window — the landing annuity
-    requires this, making "over the head" a hard requirement of the task.
+    The second counter credits forward motion only with ground support and
+    sagittal alignment. Backward motion always subtracts from both counters,
+    so alternating supported forward / airborne backward motion cannot farm
+    completion. A ballistic forward roll cannot earn supported progress.
     """
     _roulade_state(env)
     step = int(env.common_step_counter)
     if step != env._roulade_last_update_step:
-        omega_fwd = _ROULADE_FWD_SIGN * asset.data.root_link_ang_vel_b[:, 1]
-        delta = torch.nan_to_num(omega_fwd, nan=0.0) * env.step_dt
+        quat = asset.data.root_link_quat_w
+        pitch = _roulade_pitch_angle(quat)
+        if not hasattr(env, "_roulade_prev_pitch"):
+            env._roulade_prev_pitch = pitch.clone()
+        delta = torch.nan_to_num(wrap_to_pi(pitch - env._roulade_prev_pitch), nan=0.0)
+        env._roulade_prev_pitch = pitch.clone()
         supported = _sensor_any_contact(env, _ROULADE_SUPPORT_SENSOR)
-        if supported is not None:
-            delta = delta * supported.float()
+        support = torch.ones_like(delta) if supported is None else supported.float()
         # Sagittal flatness gate (run-5): side/shoulder rolls don't count.
         y_z = torch.nan_to_num(_lateral_axis_z(asset.data.root_link_quat_w), nan=1.0).abs()
         t = torch.clamp((_FLAT_ZERO - y_z) / (_FLAT_ZERO - _FLAT_FULL), 0.0, 1.0)
-        delta = delta * (t * t * (3.0 - 2.0 * t))
+        valid_forward = support * (t * t * (3.0 - 2.0 * t))
         env._roulade_accum = env._roulade_accum + delta
-        env._roulade_max = torch.maximum(env._roulade_max, env._roulade_accum)
+        env._roulade_supported_accum += torch.where(delta < 0.0, delta, delta * valid_forward)
+        eligible = torch.minimum(env._roulade_accum, env._roulade_supported_accum)
+        env._roulade_max = torch.maximum(env._roulade_max, eligible)
 
         head_contact = _sensor_any_contact(env, _ROULADE_HEAD_SENSOR)
         if head_contact is not None:
@@ -7050,11 +7072,10 @@ def _roulade_completion_gate(
     gate_hi: float,
     require_head: bool = False,
 ) -> torch.Tensor:
-    """Smoothstep on the progress frontier: 0 below gate_lo rad, 1 above gate_hi.
+    """Smoothstep on qualified progress: 0 below gate_lo, 1 above gate_hi.
 
-    State-based replacement for the old phase-clock landing window — it can
-    only be opened by actually rotating (while SUPPORTED — the accumulator is
-    contact-gated), so neither pre-roll standing nor a ballistic flip collects.
+    Both geometric rotation and supported forward progress must reach the
+    frontier. Pre-roll standing and unsupported flips cannot open the gate.
     With require_head=True the gate additionally requires the head latch —
     the episode must have rolled over the head to unlock the landing annuity.
     """
@@ -7064,6 +7085,82 @@ def _roulade_completion_gate(
     if require_head:
         gate = gate * env._roulade_head_latch.float()
     return gate
+
+
+def roulade_angle_observation(env: ManagerBasedRlEnv) -> torch.Tensor:
+    """Signed cumulative radians; observation noise must not alter reward state."""
+    accum, _, _ = _roulade_state(env)
+    return accum.unsqueeze(-1).clone()
+
+
+def reset_root_to_ground(
+    env: ManagerBasedRlEnv,
+    env_ids: torch.Tensor,
+    clearance: float = 0.0005,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> None:
+    """Ground the final joint/orientation reset using collision support points.
+
+    Convex-hull vertices preserve the exact minimum of mesh support while
+    keeping reset work small. Only kinematics is evaluated at the temporary
+    reset height; no contact solve is run with deeply penetrating geometry.
+    """
+    if env_ids is None or len(env_ids) == 0:
+        return
+    import mujoco_warp as mjwarp
+    import warp as wp
+    from scipy.spatial import ConvexHull, QhullError
+
+    asset = env.scene[asset_cfg.name]
+    cache = env.__dict__.setdefault("_ground_support_cache", {})
+    if id(asset) not in cache:
+        model = env.sim.mj_model
+        geometry = []
+        for g in asset.data.indexing.geom_ids.tolist():
+            if not (model.geom_contype[g] or model.geom_conaffinity[g]):
+                continue
+            kind = int(model.geom_type[g])
+            points = None
+            if kind == mujoco.mjtGeom.mjGEOM_MESH:
+                mesh = model.geom_dataid[g]
+                start, count = model.mesh_vertadr[mesh], model.mesh_vertnum[mesh]
+                vertices = model.mesh_vert[start:start + count].copy()
+                if count > 128:
+                    try:
+                        vertices = vertices[ConvexHull(vertices).vertices]
+                    except QhullError:
+                        pass
+                points = torch.tensor(vertices, dtype=torch.float32, device=env.device)
+            geometry.append((g, kind, points,
+                             torch.tensor(model.geom_size[g], device=env.device, dtype=torch.float32)))
+        if not geometry:
+            raise ValueError("Grounded reset requires collision geometry")
+        cache[id(asset)] = geometry
+
+    with wp.ScopedDevice(env.sim.wp_device):
+        mjwarp.kinematics(env.sim.wp_model, env.sim.wp_data)
+    bottom = torch.full((len(env_ids),), torch.inf, device=env.device)
+    for g, kind, points, size in cache[id(asset)]:
+        row = env.sim.data.geom_xmat[env_ids, g].reshape(-1, 3, 3)[:, 2, :]
+        z = env.sim.data.geom_xpos[env_ids, g, 2]
+        if points is not None:
+            z = z + (row @ points.T).amin(dim=-1)
+        elif kind == mujoco.mjtGeom.mjGEOM_SPHERE:
+            z = z - size[0]
+        elif kind == mujoco.mjtGeom.mjGEOM_BOX:
+            z = z - (row.abs() * size).sum(dim=-1)
+        elif kind == mujoco.mjtGeom.mjGEOM_CAPSULE:
+            z = z - size[0] - row[:, 2].abs() * size[1]
+        elif kind == mujoco.mjtGeom.mjGEOM_CYLINDER:
+            z = z - size[0] * row[:, :2].norm(dim=-1) - size[1] * row[:, 2].abs()
+        elif kind == mujoco.mjtGeom.mjGEOM_ELLIPSOID:
+            z = z - (row * size).norm(dim=-1)
+        else:
+            raise ValueError(f"Unsupported robot collision geometry type: {kind}")
+        bottom = torch.minimum(bottom, z)
+    root_z = int(asset.data.indexing.free_joint_q_adr[2])
+    ground_z = env.scene.terrain.env_origins[env_ids, 2]
+    env.sim.data.qpos[env_ids, root_z] += ground_z + clearance - bottom
 
 
 def reset_roulade_state(
@@ -7165,6 +7262,14 @@ def reset_roulade_state(
         noise = torch.randn(len(mid_env_ids), len(cols), device=env.device) * joint_noise_std
         env.sim.data.qpos[mid_env_ids.unsqueeze(1), cols.unsqueeze(0)] += noise
 
+    # Clamp after all tuck/noise updates, using resolved servo and qpos IDs.
+    qcols = asset.data.indexing.joint_q_adr[servo_ids]
+    limits = asset.data.joint_pos_limits[env_ids][:, servo_ids]
+    q = env.sim.data.qpos[env_ids[:, None], qcols[None, :]]
+    env.sim.data.qpos[env_ids[:, None], qcols[None, :]] = torch.clamp(
+        q, min=limits[..., 0], max=limits[..., 1],
+    )
+
     # Mid-roll forward angular momentum: rotation about body +y. MuJoCo free
     # joint qvel[3:6] is the angular velocity in the BODY frame, so [0, ω, 0]
     # is the forward-roll axis regardless of spawn yaw (verified in the smoke
@@ -7195,6 +7300,10 @@ def reset_roulade_state(
     accum[env_ids] = spawn_angle
     max_accum[env_ids] = spawn_angle
     paid[env_ids] = spawn_angle
+    env._roulade_supported_accum[env_ids] = spawn_angle
+    if not hasattr(env, "_roulade_prev_pitch"):
+        env._roulade_prev_pitch = _roulade_pitch_angle(asset.data.root_link_quat_w).clone()
+    env._roulade_prev_pitch[env_ids] = _roulade_pitch_angle(quat)
     # Head latch: mid-roll spawns are considered already past the head phase
     # (the reverse curriculum teaches roll COMPLETION; requiring a latch they
     # never had the chance to earn would keep their landing gate shut forever).
@@ -7213,8 +7322,8 @@ def roulade_progress(
     reward = Δ(min(max_accum, target)) / (step_dt · target), CAPPED at
     max_paid_rate rad/s of paid rotation. Nothing to farm by camping
     face-down (0/step), rocking below the frontier (0/step), or spinning past
-    2π (clamped). The accumulator is support-gated, so airborne rotation pays
-    nothing either.
+    2π (clamped). Only contact-qualified forward motion advances paid progress;
+    unsupported reversals still subtract from the underlying counters.
 
     max_paid_rate (run-1 fix): rotation faster than the cap FORFEITS the
     excess — the paid pointer still jumps to the frontier, it just pays the
@@ -7276,6 +7385,7 @@ def roulade_landing_composite(
     gate_hi: float = math.radians(330.0),
     target_overrides: Optional[dict] = None,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+    require_feet: bool = False,
 ) -> torch.Tensor:
     """standing_composite_score × completion gate.
 
@@ -7296,6 +7406,9 @@ def roulade_landing_composite(
         target_overrides=target_overrides,
         asset_cfg=asset_cfg,
     )
+    if require_feet:
+        found = env.scene.sensors["feet_ground_contact"].data.found
+        score = score * (found.reshape(env.num_envs, -1) > 0).all(dim=-1).float()
     return score * _roulade_completion_gate(env, gate_lo, gate_hi, require_head=True)
 
 
@@ -7346,6 +7459,7 @@ def roulade_landing_sharp(
     gate_lo: float = math.radians(260.0),
     gate_hi: float = math.radians(330.0),
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+    require_feet: bool = False,
 ) -> torch.Tensor:
     """Tight-std upright × height Gaussians × completion gate — the last mile.
 
@@ -7365,6 +7479,9 @@ def roulade_landing_sharp(
     )
     height_g = torch.exp(-((z - target_height) / height_std) ** 2)
     gate = _roulade_completion_gate(env, gate_lo, gate_hi, require_head=True)
+    if require_feet:
+        found = env.scene.sensors["feet_ground_contact"].data.found
+        gate = gate * (found.reshape(env.num_envs, -1) > 0).all(dim=-1).float()
     return upright_g * height_g * gate
 
 

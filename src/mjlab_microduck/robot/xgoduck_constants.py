@@ -124,6 +124,18 @@ def get_standup_spec() -> mujoco.MjSpec:
     return _disable_unnamed_geoms(mujoco.MjSpec.from_file(str(XGODUCK_ALLCOLLISIONS_XML)))
 
 
+def get_roulade_spec() -> mujoco.MjSpec:
+    """Full-body contacts, excluding three overlapping CAD joint housings."""
+    spec = get_standup_spec()
+    for body1, body2 in (
+        ("trunk_base", "hip_l"),
+        ("trunk_base", "hip_l_2"),
+        ("neck_pitch", "jaw_soft"),
+    ):
+        spec.add_exclude(bodyname1=body1, bodyname2=body2)
+    return spec
+
+
 # Walk uses the original 3–6-step delay with 5 ms physics (15–30 ms).
 _walk_actuators = deepcopy(actuators)
 _walk_actuators.delay_min_lag = 3
@@ -148,3 +160,16 @@ XGODUCK_STANDUP_ROBOT_CFG = EntityCfg(
         soft_joint_pos_limit_factor=0.9,
     ),
 )
+
+# Match MicroDuck FULL_COLLISION: all named meshes collide with one another;
+# feet have frictional contacts, other links have normal-only contacts.
+XGODUCK_ROULADE_ROBOT_CFG = deepcopy(XGODUCK_STANDUP_ROBOT_CFG)
+XGODUCK_ROULADE_ROBOT_CFG.spec_fn = get_roulade_spec
+XGODUCK_ROULADE_ROBOT_CFG.collisions = (CollisionCfg(
+    geom_names_expr=(".*_collision",),
+    contype=1,
+    conaffinity=1,
+    condim={r"^(left|right)_foot_collision$": 3, ".*_collision": 1},
+    priority={r"^(left|right)_foot_collision$": 1},
+    friction={r"^(left|right)_foot_collision$": (1.0,)},
+),)

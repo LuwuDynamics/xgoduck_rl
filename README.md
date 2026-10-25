@@ -50,7 +50,17 @@ uv run train Mjlab-Velocity-Swizzle-XgoDuck --env.scene.num-envs 4096
 | `Mjlab-BallKick-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_ball_kick_right/` |
 | `Mjlab-BallKick-Left-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_ball_kick_left/` |
 | `Mjlab-Roulade-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_roulade/` |
+| `Mjlab-Roulade-Angle-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_roulade_angle/` |
 | `Mjlab-Velocity-Swizzle-XgoDuck` | flat | `logs/rsl_rl/xgoduck_velocity_swizzle/` |
+
+Both Roulade tasks start standing and run for seven seconds, including standing
+after the roll. The baseline retains the original observations and deployment
+interface. The Angle variant replaces one of the last six zero-padding values
+with signed cumulative rotation in radians; the other five stay zero. Training
+adds uniform ±30° angle noise. It uses the same rewards as the baseline, with
+no extra 360° angle-tracking reward. Its runtime must accumulate the sagittal
+angle from IMU orientation (see `mdp._roulade_pitch_angle`), starting at zero
+on skill entry. Both actors have 61 inputs.
 
 ## Play
 

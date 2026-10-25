@@ -339,14 +339,18 @@ from .xgoduck_physics import configure_xgoduck_physics
 def _xgoduck_velocity_cfg(**kwargs):
     cfg = make_microduck_velocity_env_cfg(**kwargs)
     # MicroDuck's legacy head list includes bearing_roll, a right hip on XgoDuck.
-    cfg.events["randomize_head_com"].params["asset_cfg"].body_names = (
-        "neck", "neck_pitch", "yaw_roll_motion", "jaw_soft",
-    )
+    if "randomize_head_com" in cfg.events:
+        cfg.events["randomize_head_com"].params["asset_cfg"].body_names = (
+            "neck", "neck_pitch", "yaw_roll_motion", "jaw_soft",
+        )
     cfg.scene.entities = {"robot": deepcopy(XGODUCK_WALK_ROBOT_CFG)}
-    cfg.events["reset_base"].params["pose_range"]["z"] = (
-        XGODUCK_WALK_STAND_Z - 0.005,
-        XGODUCK_WALK_STAND_Z + 0.005,
-    )
+    # reset_root_state_uniform ADDS these offsets to InitialStateCfg.pos.
+    # HOME already leaves 1 mm below the soles; do not add the height again
+    # or sample negative offsets that push the feet into the floor.
+    cfg.events["reset_base"].params["pose_range"]["z"] = (0.0, 0.0)
+    if kwargs.get("rough", False):
+        # terrain_levels assumes increasing difficulty along rows.
+        cfg.scene.terrain.terrain_generator.curriculum = not kwargs.get("play", False)
     cfg.events["foot_friction"].params["ranges"] = (0.4, 1.5)
     if "push_robot" in cfg.events:
         cfg.events["push_robot"].params["velocity_range"] = {
@@ -391,6 +395,12 @@ def _xgoduck_velocity_cfg(**kwargs):
     cfg.rewards["pose"].params["std_standing"] = _std_s
     cfg.rewards["pose"].params["std_walking"] = _std_w
     cfg.rewards["pose"].params["std_running"] = _std_r
+    if kwargs.get("play", False):
+        # Match the requested Walk playback posture; the training curriculum
+        # must not re-enable random head commands after entering play.
+        cfg.commands["head_pose"].ranges = ((0.0, 0.0),) * 4
+        cfg.commands["head_pose"].zero_command_prob = 1.0
+        cfg.curriculum.pop("head_pose_range", None)
     return cfg
 
 
@@ -642,7 +652,9 @@ register_mjlab_task(
 # XgoDuck dynamic tricks (flat terrain); default BallKick is right-footed.
 from .xgoduck_tricks_env_cfg import (
     make_xgoduck_ball_kick_env_cfg, make_xgoduck_roulade_env_cfg,
+    make_xgoduck_roulade_angle_env_cfg,
     XgoduckBallKickRlCfg, XgoduckBallKickLeftRlCfg, XgoduckRouladeRlCfg,
+    XgoduckRouladeAngleRlCfg,
 )
 
 for _task_id, _factory, _kwargs, _runner_cfg in (
@@ -651,6 +663,8 @@ for _task_id, _factory, _kwargs, _runner_cfg in (
     ("Mjlab-BallKick-Left-Flat-XgoDuck", make_xgoduck_ball_kick_env_cfg,
      {"kick_foot": "left"}, XgoduckBallKickLeftRlCfg),
     ("Mjlab-Roulade-Flat-XgoDuck", make_xgoduck_roulade_env_cfg, {}, XgoduckRouladeRlCfg),
+    ("Mjlab-Roulade-Angle-Flat-XgoDuck", make_xgoduck_roulade_angle_env_cfg,
+     {}, XgoduckRouladeAngleRlCfg),
 ):
     register_mjlab_task(
         task_id=_task_id,

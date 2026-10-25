@@ -142,7 +142,7 @@ def make_xgoduck_velocity_swizzle_env_cfg(
     cfg.rewards["com_height_target"].weight = 1.2
     cfg.rewards["joint_torques_l2"].weight = -0.02
     cfg.rewards["action_rate_l2"].weight = -3.0
-    cfg.rewards["neck_action_rate_l2"].weight = -4.0
+    cfg.rewards["neck_action_rate_l2"].weight = -2.0
     cfg.curriculum.pop("action_rate_weight", None)
     cfg.rewards["heading_tracking"].weight *= 0.5
     for stage in cfg.curriculum["heading_tracking_weight"].params["weight_stages"]:

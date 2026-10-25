@@ -72,9 +72,13 @@ def test_walk_keeps_original_recipe_except_explicit_overrides():
         assert original.rewards["foot_swing_height"].weight == pytest.approx(-0.25)
         for name in ("air_time", "foot_clearance", "foot_swing_height"):
             assert walk.rewards[name].params == original.rewards[name].params
-        assert walk.curriculum.keys() == original.curriculum.keys()
-        assert walk.curriculum["head_pose_range"].params == original.curriculum["head_pose_range"].params
-        assert walk.commands["head_pose"].ranges == original.commands["head_pose"].ranges
+        if kwargs.get("play"):
+            assert set(walk.curriculum) == set(original.curriculum) - {"head_pose_range"}
+            assert walk.commands["head_pose"].ranges == ((0.0, 0.0),) * 4
+        else:
+            assert walk.curriculum.keys() == original.curriculum.keys()
+            assert walk.curriculum["head_pose_range"].params == original.curriculum["head_pose_range"].params
+            assert walk.commands["head_pose"].ranges == original.commands["head_pose"].ranges
         assert walk.commands["twist"].rel_backward_envs == (0.0 if kwargs.get("play") else 0.15)
         assert walk.sim.mujoco.timestep == original.sim.mujoco.timestep == 0.005
         assert walk.decimation == original.decimation == 4
