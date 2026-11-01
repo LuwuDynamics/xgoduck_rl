@@ -652,9 +652,9 @@ register_mjlab_task(
 # XgoDuck dynamic tricks (flat terrain); default BallKick is right-footed.
 from .xgoduck_tricks_env_cfg import (
     make_xgoduck_ball_kick_env_cfg, make_xgoduck_roulade_env_cfg,
-    make_xgoduck_roulade_angle_env_cfg,
+    make_xgoduck_roulade_angle_env_cfg, make_xgoduck_roulade_midroll_env_cfg,
     XgoduckBallKickRlCfg, XgoduckBallKickLeftRlCfg, XgoduckRouladeRlCfg,
-    XgoduckRouladeAngleRlCfg,
+    XgoduckRouladeAngleRlCfg, XgoduckRouladeMidrollRlCfg,
 )
 
 for _task_id, _factory, _kwargs, _runner_cfg in (
@@ -665,6 +665,8 @@ for _task_id, _factory, _kwargs, _runner_cfg in (
     ("Mjlab-Roulade-Flat-XgoDuck", make_xgoduck_roulade_env_cfg, {}, XgoduckRouladeRlCfg),
     ("Mjlab-Roulade-Angle-Flat-XgoDuck", make_xgoduck_roulade_angle_env_cfg,
      {}, XgoduckRouladeAngleRlCfg),
+    ("Mjlab-Roulade-Midroll-Flat-XgoDuck", make_xgoduck_roulade_midroll_env_cfg,
+     {}, XgoduckRouladeMidrollRlCfg),
 ):
     register_mjlab_task(
         task_id=_task_id,

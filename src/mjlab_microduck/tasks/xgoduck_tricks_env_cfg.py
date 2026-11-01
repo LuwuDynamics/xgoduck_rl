@@ -62,7 +62,7 @@ def make_xgoduck_ball_kick_env_cfg(play=False, kick_foot="right"):
     return cfg
 
 
-def make_xgoduck_roulade_env_cfg(play=False, *, angle_observation=False):
+def make_xgoduck_roulade_env_cfg(play=False, *, angle_observation=False, midroll_spawn=False):
     cfg = _configure_robot(make_microduck_roulade_env_cfg(play=play))
     cfg.scene.entities["robot"] = deepcopy(XGODUCK_ROULADE_ROBOT_CFG)
     # Pooled contact storage; the standing reset avoids a second full-world
@@ -101,8 +101,11 @@ def make_xgoduck_roulade_env_cfg(play=False, *, angle_observation=False):
     )
     # Both ablations start a complete roll at zero; intermediate-roll spawns
     # would make the angle at landing depend on the sampled starting posture.
-    spawn.update(standing_prob=1.0, midroll_prob=0.0)
-    cfg.curriculum.pop("roulade_spawn_mix", None)
+    # The midroll variant keeps the upstream 50/50 reverse curriculum so the
+    # landing gate is reachable before standing rolls are discovered.
+    if not midroll_spawn:
+        spawn.update(standing_prob=1.0, midroll_prob=0.0)
+        cfg.curriculum.pop("roulade_spawn_mix", None)
     if angle_observation:
         for group in ("actor", "critic"):
             terms = cfg.observations[group].terms
@@ -148,6 +151,10 @@ def make_xgoduck_roulade_angle_env_cfg(play=False):
     return make_xgoduck_roulade_env_cfg(play=play, angle_observation=True)
 
 
+def make_xgoduck_roulade_midroll_env_cfg(play=False):
+    return make_xgoduck_roulade_env_cfg(play=play, midroll_spawn=True)
+
+
 XgoduckBallKickRlCfg = replace(
     MicroduckBallKickRlCfg, logger="tensorboard", experiment_name="xgoduck_ball_kick_right",
     run_name="xgoduck", upload_model=False,
@@ -165,4 +172,9 @@ XgoduckRouladeAngleRlCfg = replace(
     XgoduckRouladeRlCfg,
     experiment_name="xgoduck_roulade_angle",
     run_name="angle_noise30deg",
+)
+XgoduckRouladeMidrollRlCfg = replace(
+    XgoduckRouladeRlCfg,
+    experiment_name="xgoduck_roulade_midroll",
+    run_name="midroll",
 )

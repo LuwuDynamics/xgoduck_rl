@@ -142,6 +142,26 @@ def test_ablation_rewards_are_identical_and_both_rolls_start_standing():
         assert spawn["standing_prob"] == 1.0 and spawn["midroll_prob"] == 0.0
 
 
+def test_midroll_variant_trains_with_reverse_curriculum_and_plays_standing():
+    baseline = load_env_cfg("Mjlab-Roulade-Flat-XgoDuck")
+    train = load_env_cfg("Mjlab-Roulade-Midroll-Flat-XgoDuck")
+    play = load_env_cfg("Mjlab-Roulade-Midroll-Flat-XgoDuck", play=True)
+    spawn = train.events["set_roulade_state"].params
+    assert spawn["standing_prob"] == 0.5 and spawn["midroll_prob"] == 0.5
+    assert "roulade_spawn_mix" in train.curriculum
+    play_spawn = play.events["set_roulade_state"].params
+    assert play_spawn["standing_prob"] == 1.0 and play_spawn["midroll_prob"] == 0.0
+    assert not play.curriculum
+    # Same rewards and observation layout as the baseline, so export/deploy is unchanged.
+    assert list(train.rewards) == list(baseline.rewards)
+    for name, term in baseline.rewards.items():
+        other = train.rewards[name]
+        assert term.func is other.func and term.weight == other.weight
+        assert term.params == other.params
+    for group in ("actor", "critic"):
+        assert list(train.observations[group].terms) == list(baseline.observations[group].terms)
+
+
 def test_sharp_landing_reward_requires_both_feet():
     env, asset, support, feet = rotation_fixture()
     turn(env, asset, support, 0, 2 * math.pi, 1)
