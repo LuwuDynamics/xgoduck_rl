@@ -32,6 +32,7 @@ From the repository root:
 
 ```bash
 uv run train Mjlab-Velocity-Flat-XgoDuck --env.scene.num-envs 4096
+uv run train Mjlab-StandUp-Flat-XgoDuck --env.scene.num-envs 4096
 uv run train Mjlab-Velocity-Swizzle-XgoDuck --env.scene.num-envs 4096
 ```
 
@@ -43,6 +44,7 @@ uv run train Mjlab-Velocity-Swizzle-XgoDuck --env.scene.num-envs 4096
 | `Mjlab-Velocity-Rough-XgoDuck` | rough | `logs/rsl_rl/xgoduck_velocity/` |
 | `Mjlab-StandUp-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_standup/` |
 | `Mjlab-StandUp-Rough-XgoDuck` | rough | `logs/rsl_rl/xgoduck_standup/` |
+| `Mjlab-RollerStandUp-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_roller_standup/` |
 | `Mjlab-GroundPick-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_ground_pick/` |
 | `Mjlab-GroundPick-Rough-XgoDuck` | rough | `logs/rsl_rl/xgoduck_ground_pick/` |
 | `Mjlab-SitStand-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_sitstand/` |
@@ -50,17 +52,7 @@ uv run train Mjlab-Velocity-Swizzle-XgoDuck --env.scene.num-envs 4096
 | `Mjlab-BallKick-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_ball_kick_right/` |
 | `Mjlab-BallKick-Left-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_ball_kick_left/` |
 | `Mjlab-Roulade-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_roulade/` |
-| `Mjlab-Roulade-Angle-Flat-XgoDuck` | flat | `logs/rsl_rl/xgoduck_roulade_angle/` |
 | `Mjlab-Velocity-Swizzle-XgoDuck` | flat | `logs/rsl_rl/xgoduck_velocity_swizzle/` |
-
-Both Roulade tasks start standing and run for seven seconds, including standing
-after the roll. The baseline retains the original observations and deployment
-interface. The Angle variant replaces one of the last six zero-padding values
-with signed cumulative rotation in radians; the other five stay zero. Training
-adds uniform ±30° angle noise. It uses the same rewards as the baseline, with
-no extra 360° angle-tracking reward. Its runtime must accumulate the sagittal
-angle from IMU orientation (see `mdp._roulade_pitch_angle`), starting at zero
-on skill entry. Both actors have 61 inputs.
 
 ## Play
 
@@ -84,6 +76,15 @@ uv run python scripts/export.py Mjlab-Velocity-Flat-XgoDuck \
 ```
 
 If you omit `--onnx-file`, the file is written to `output.onnx` in the current directory. `*.onnx` is gitignored. Keep the export next to the run that produced it, for example `logs/rsl_rl/xgoduck_velocity/<run>/<run>.onnx`.
+
+## Repository contents
+
+- `src/mjlab_microduck/`: training environments, robot assets, and actuator integration.
+- `scripts/`: training workflows, playback, ONNX export, and policy inference tools.
+- `vendor/bam/`: the pinned BAM runtime, including its upstream documentation and license.
+- `pyproject.toml` and `uv.lock`: reproducible dependency configuration.
+
+Training checkpoints, logs, recordings, and local validation tools are excluded from the source release. New training runs write to the ignored `logs/` directory by default. To play archived checkpoints, pass their path with `--checkpoint-file`.
 
 ## License
 

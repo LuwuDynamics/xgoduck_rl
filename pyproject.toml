@@ -49,7 +49,7 @@ mjlab_microduck = "mjlab_microduck.tasks"
 # then finds some unrelated `train` on PATH (liblinear's, 2026-08-31).
 # The collision is harmless because the two shims are interchangeable:
 # --hf-jobs is intercepted from the `mjlab.tasks` entry point above
-# (train_hook.py), not here. Locked by tests/test_hf_jobs_flag.py.
+# (train_hook.py), not here.
 train = "mjlab_microduck.train_cli:main"
 
 [tool.ruff]
@@ -87,8 +87,6 @@ override-dependencies = [
 # GitHub clone is unreliable here; lock pin 62bd8ce12154340be97e06f7f41a0ca8f116d967
 # (mjlab_frictionloss) was copied into vendor/bam.
 better-actuator-models = { path = "vendor/bam", editable = true }
-# For local BAM development, comment the line above and use:
-# better-actuator-models = { path = "/home/antoine/Rhoban/bam", editable = true }
 # On linux-aarch64 (DGX Spark / GB10) PyPI's torch wheel is CPU-ONLY:
 # torch.__version__ == "2.9.1+cpu", torch.version.cuda is None, so
 # torch.cuda.device_count() == 0 and mjlab's select_gpus() indexes an empty

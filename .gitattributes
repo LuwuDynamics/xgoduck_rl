@@ -1,0 +1,8 @@
+# Keep source diffs consistent across Linux and Windows.
+* text=auto eol=lf
+*.stl -text
+*.png -text
+*.jpg -text
+*.jpeg -text
+*.gif -text
+*.pdf -text

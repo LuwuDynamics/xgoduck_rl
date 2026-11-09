@@ -1,12 +1,14 @@
 """XgoDuck Swizzle with signed push commands and grounded passive skates.
 
 Head commands remain at HOME. Heading and push-disturbance curricula introduce
-turning and robustness gradually while keeping mass and inertia fixed.
+turning and robustness gradually; servo dynamics and mass DR match XgoDuck Walk.
 """
 
 from copy import deepcopy
 from dataclasses import replace
 from math import radians
+
+import torch
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import dr
@@ -34,8 +36,75 @@ TIRE_SLIDING_FRICTION_RANGE = (0.4, 2.0)
 TIRE_SLIDING_FRICTION_NOMINAL = 1.0
 
 
+def swizzle_standing_curriculum(
+    env, env_ids, command_name: str, start_fraction: float,
+    end_fraction: float, end_step: int,
+) -> torch.Tensor:
+    """Reduce standing resamples while sharing the remainder across four modes."""
+    del env_ids
+    progress = min(1.0, max(0.0, float(env.common_step_counter) / end_step))
+    fraction = start_fraction + (end_fraction - start_fraction) * progress
+    env.command_manager.get_term(command_name).cfg.rel_standing_envs = fraction
+    return torch.tensor([fraction], device=env.device)
+
+
 class XgoduckSwizzleCommand(mdp.RelativeHeadingVelocityCommand):
-    """Keep historical command sampling and expose its push/heading semantics."""
+    """Sample stand, straight forward/backward, and turning forward/backward."""
+
+    def _resample_command(self, env_ids: torch.Tensor) -> None:
+        count = len(env_ids)
+        if count == 0:
+            return
+        standing = torch.rand(count, device=self.device) < self.cfg.rel_standing_envs
+        # Conditional on moving, these four disjoint modes have equal probability:
+        # 0 forward, 1 backward, 2 backward + turn, 3 forward + turn.
+        mode = torch.randint(4, (count,), device=self.device)
+        backward = ~standing & ((mode == 1) | (mode == 2))
+        turning = ~standing & ((mode == 2) | (mode == 3))
+        forward = ~standing & ~backward
+        x_lo, x_hi = self.cfg.ranges.lin_vel_x
+        turn_lo, turn_hi = self.cfg.ranges.ang_vel_z
+        if not (x_lo < 0.0 < x_hi and turn_lo < 0.0 < turn_hi):
+            raise ValueError("Swizzle command modes require signed push and heading ranges")
+
+        # Keep the existing uniform magnitude ranges, excluding only exact zero;
+        # an all-zero command belongs exclusively to the standing mode.
+        epsilon = torch.finfo(self.vel_command_b.dtype).eps
+        push = torch.where(
+            backward,
+            -torch.empty(count, device=self.device).uniform_(epsilon, -x_lo),
+            torch.empty(count, device=self.device).uniform_(epsilon, x_hi),
+        )
+        turn_left = torch.rand(count, device=self.device) < 0.5
+        heading = torch.where(
+            turn_left,
+            torch.empty(count, device=self.device).uniform_(epsilon, turn_hi),
+            -torch.empty(count, device=self.device).uniform_(epsilon, -turn_lo),
+        )
+        self.vel_command_b[env_ids] = 0.0
+        self.vel_command_b[env_ids, 0] = torch.where(standing, 0.0, push)
+        self.vel_command_b[env_ids, 2] = torch.where(turning, heading, 0.0)
+        self.is_standing_env[env_ids] = standing
+        self.is_heading_env[env_ids] = turning
+        self.is_forward_env[env_ids] = forward & ~turning
+        self.is_world_env[env_ids] = False
+
+        # The third input remains a relative heading error. Turning modes sample
+        # a left/right goal relative to the current heading instead of a random
+        # world heading that would saturate most samples at the clip limit.
+        quat = self.robot.data.root_link_quat_w[env_ids]
+        w, x, y, z = quat.unbind(-1)
+        yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+        self._target_heading_w[env_ids] = yaw + self.vel_command_b[env_ids, 2]
+        self.vel_command_w[env_ids] = self.vel_command_b[env_ids]
+
+    def _update_command(self) -> None:
+        super()._update_command()
+        # The relative-heading parent recomputes slot 2 for every environment.
+        # Enforce the sampled mode after it so stand/straight stay exactly zero.
+        self.vel_command_b[~self.is_heading_env, 2] = 0.0
+        self.vel_command_b[self.is_standing_env] = 0.0
+        self.vel_command_w[:] = self.vel_command_b
 
     def create_gui(self, name, server, get_env_idx, on_change=None, request_action=None):
         with server.gui.add_folder(name.capitalize()):
@@ -78,6 +147,13 @@ def make_xgoduck_velocity_swizzle_env_cfg(
     cfg.commands["twist"].ranges.lin_vel_x = (-0.6, 0.6)
     cfg.commands["twist"].ranges.lin_vel_y = (0.0, 0.0)
     cfg.commands["twist"].init_velocity_prob = 0.0
+    cfg.commands["twist"].rel_standing_envs = 0.3
+    cfg.commands["twist"].rel_forward_envs = 0.0
+    cfg.curriculum["standing_envs"] = CurriculumTermCfg(
+        func=swizzle_standing_curriculum,
+        params={"command_name": "twist", "start_fraction": 0.3,
+                "end_fraction": 0.1, "end_step": 2500 * 24},
+    )
 
     # Robot-specific sensing and propulsion shaping.
     cfg.observations["actor"].terms["joint_pos"].noise.n_min = -radians(1.0)
@@ -181,6 +257,7 @@ def make_xgoduck_velocity_swizzle_env_cfg(
                 "end_step": 2000 * 24},
     )
     if play:
+        cfg.commands["twist"].rel_standing_envs = 0.1
         cfg.rewards["heading_hold"].weight = 0.0
         cfg.rewards["heading_tracking"].weight = 1.5
         cfg.observations["actor"].enable_corruption = False

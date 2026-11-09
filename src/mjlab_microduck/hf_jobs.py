@@ -54,7 +54,7 @@ apt-get install -qq -y --no-install-recommends git curl ca-certificates xz-utils
 # bam's built-wheel cache entry from a 0.9.x-era job made 0.11.30 fail with
 # "The wheel is invalid: Missing .dist-info directory").
 curl -LsSf https://astral.sh/uv/0.11.30/install.sh | sh >/dev/null
-export PATH="/root/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 # HF Jobs met le cache uv et /work sur des FS différents -> uv ne peut pas
 # hardlink et son fallback corrompt les wheels construits (bam -> "Missing
 # .dist-info directory"). copy = install fiable (le remède que uv suggère).

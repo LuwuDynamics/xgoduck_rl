@@ -55,20 +55,10 @@ USE_PROJECTED_GRAVITY = True  # If True, use projected gravity instead of raw ac
 # Domain randomization ranges (adjust as needed)
 # Conservative ranges proven to be stable - can increase gradually if needed
 COM_RANDOMIZATION_RANGE = 0.003  # ±3mm initial, ramped to ±8mm via curriculum
-# Head CoM randomization: applied per-episode to every body of the head assembly
-# (neck → neck_pitch → yaw_roll_motion → head-roll body). Same non-accumulating
-# mechanism as the trunk CoM randomization above. The head-roll body is named
-# bottom_head_shell in the walk model and jaw_soft in the 2026-07 roller model,
-# hence the alternation. NOTE: bearing_roll is NOT a head body — in both models
-# it is the right-hip-yaw link (child of trunk_base); it has always been listed
-# here by mistake and is kept only to preserve existing DR behavior.
-HEAD_COM_RANDOMIZATION_RANGE = 0.003  # ±3mm initial, ramped via curriculum
+# Head CoM DR applies to the four head links. bearing_roll is a hip link.
+HEAD_COM_RANDOMIZATION_RANGE = 0.003
 HEAD_BODY_NAMES = (
-    "neck",
-    "neck_pitch",
-    "yaw_roll_motion",
-    "(bottom_head_shell|jaw_soft)",
-    "bearing_roll",
+    "neck", "neck_pitch", "yaw_roll_motion", "(bottom_head_shell|jaw_soft)",
 )
 MASS_INERTIA_RANDOMIZATION_RANGE = (0.95, 1.05)  # ±5% applied to BOTH mass and inertia together.
 KP_RANDOMIZATION_RANGE = (0.85, 1.15)  # ±15%

@@ -1,42 +1,69 @@
-# Python-generated files
+# Python and build outputs
 __pycache__/
-*.py[oc]
+*.py[cod]
+*.egg-info/
 build/
 dist/
 wheels/
-*.egg-info
 .python-version
-# uv.lock
 
-
-
-# Virtual environments
+# Local environments and private configuration
 .venv
-
-# Logs and databases
-wandb
-logs
-agents
+venv/
+.env
+.env.*
+!.env.example
 AGENTS.md
 CLAUDE.md
+agents/
 
-*.pch
-nohup.out
-*.onnx
-beyondmimic_motions/
-artifacts/
-*.npz
-
-src/mjlab_microduck/robot/microduck.bak/*
-src/mjlab_microduck/robot/microduck_test/*
-data/
-*.pt
-
-claude_experiments/
-
-backup_onnx/
-
-
-logdir/.claude/
+# Training, evaluation, and model outputs
+logs/
 logdir/
-logdir/.claude/worktrees/
+runs/
+wandb/
+checkpoints/
+model_previews/
+model_variants/
+previews/
+artifacts/
+output/
+outputs/
+recordings/
+diagnostics/
+data/
+beyondmimic_motions/
+*.pt
+*.pth
+*.onnx
+*.npz
+*.log
+*.mp4
+*.avi
+*.webm
+*.zip
+*.tar
+*.tar.gz
+nohup.out
+
+# Development and export caches
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage*
+htmlcov/
+*.pch
+*.part
+*.bak
+*.orig
+*~
+
+# Local experiments and test suites are kept outside the release tree
+tests/
+test_*.py
+*_test.py
+claude_experiments/
+backup_onnx/
+src/mjlab_microduck/robot/microduck.bak/
+src/mjlab_microduck/robot/microduck_test/
