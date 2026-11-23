@@ -1,10 +1,16 @@
-from mjlab_microduck.train_hook import maybe_submit_to_hf_jobs
+import os
+
+from mjlab_microduck.train_hook import (
+    configure_ppo_device,
+    maybe_submit_to_hf_jobs,
+)
 
 # `train <task> ... --hf-jobs` submits to HF Jobs and exits here, before any
 # of the cfg imports below: this module is what mjlab's plugin loader pulls
 # in, and it is the only train path no install order can take from us (see
 # train_hook.py). A no-op without the flag.
 maybe_submit_to_hf_jobs()
+configure_ppo_device()
 
 from mjlab.tasks.registry import register_mjlab_task
 from mjlab.tasks.velocity.rl import VelocityOnPolicyRunner
@@ -12,7 +18,8 @@ from mjlab.tasks.velocity.rl import VelocityOnPolicyRunner
 
 class MicroduckOnPolicyRunner(VelocityOnPolicyRunner):
     def __init__(self, env, train_cfg: dict, log_dir=None, device="cpu", **kwargs):
-        super().__init__(env, train_cfg, log_dir, device, **kwargs)
+        ppo_device = os.environ.get("MICRODUCK_PPO_DEVICE", device)
+        super().__init__(env, train_cfg, log_dir, ppo_device, **kwargs)
         # resolve_symmetry_config injects _env into train_cfg["algorithm"]["symmetry_cfg"]
         # in-place, sharing the same dict object with self.alg.symmetry.  Replace the
         # train_cfg reference with a copy that omits _env so dump_yaml can serialize the

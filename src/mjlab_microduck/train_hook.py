@@ -34,6 +34,18 @@ _FLAG = "--hf-jobs"
 _IN_JOB_ENV = "MICRODUCK_IN_HF_JOB"
 
 
+def configure_ppo_device() -> None:
+    if not _invoked_as_train():
+        return
+    for i, arg in enumerate(sys.argv[1:], 1):
+        if arg == "--ppo-device":
+            if i + 1 >= len(sys.argv) or sys.argv[i + 1] not in ("cpu", "mps"):
+                raise SystemExit("--ppo-device requires cpu or mps")
+            os.environ["MICRODUCK_PPO_DEVICE"] = sys.argv[i + 1]
+            del sys.argv[i:i + 2]
+            return
+
+
 def _invoked_as_train() -> bool:
     """True when argv[0] is mjlab's trainer (console script or `-m`).
 
@@ -58,6 +70,9 @@ def maybe_submit_to_hf_jobs() -> None:
         return
     if not _invoked_as_train():
         return
+
+    if "--ppo-device" in sys.argv[1:]:
+        raise SystemExit("--ppo-device cannot be combined with --hf-jobs")
 
     from mjlab_microduck.hf_jobs import submit
 
